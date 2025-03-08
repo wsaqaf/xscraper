@@ -1,7 +1,3 @@
-<<<<<<< HEAD
-# harprocessor
-Processes HAR files obtained from scrolling X
-=======
 # Xscraper
 
 Xscraper is a tool for processing HTTP Archive (HAR) files to extract and analyze tweets, users, and interactions. It provides a web-based interface using PHP and Apache, combined with Python for backend processing. The extracted data can be downloaded as CSV files or viewed in a structured table.
