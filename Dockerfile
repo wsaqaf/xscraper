@@ -1,14 +1,15 @@
 # Dockerfile for Xscraper
 
 # Use official Python image with Apache
-FROM python:3.9
+FROM python:3.11
 
 # Install system dependencies including Apache and PHP
 RUN apt-get update && apt-get install -y \
     apache2 \
     libapache2-mod-wsgi-py3 \
-    php-cli \
     php \
+    libapache2-mod-php \
+    php-cli \
     php-mbstring \
     php-xml \
     php-curl \
@@ -18,6 +19,10 @@ RUN apt-get update && apt-get install -y \
 
 # Set working directory inside the container
 WORKDIR /app
+
+# Create upload folder and set permissions
+RUN mkdir -p /app/UPLOAD_FOLDER && \
+    chmod 777 /app/UPLOAD_FOLDER
 
 # Copy only requirements.txt first to leverage Docker caching
 COPY requirements.txt /app/requirements.txt
@@ -34,11 +39,17 @@ COPY xscraper.conf /etc/apache2/sites-available/xscraper.conf
 # Ensure correct permissions for Apache config
 RUN chmod 644 /etc/apache2/sites-available/xscraper.conf
 
-# Enable Apache site configuration and disable the default site
-RUN a2ensite xscraper.conf && a2dissite 000-default.conf
+# Set correct permissions for web server
+RUN chown -R www-data:www-data /app && \
+    chmod -R 755 /app
 
-# Ensure required Apache modules are enabled
-RUN a2enmod wsgi
+# Enable required Apache modules
+RUN a2enmod rewrite
+RUN a2enmod php8.2 || a2enmod php8.1 || a2enmod php8.0 || a2enmod php7.4 || echo "No PHP module found"
+
+# Remove default site and enable our site
+RUN a2dissite 000-default.conf
+RUN a2ensite xscraper.conf
 
 # Expose port 80 for web access
 EXPOSE 80

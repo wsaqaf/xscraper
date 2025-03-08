@@ -3,3 +3,9 @@ pandas
 requests
 beautifulsoup4
 langdetect
+python-dateutil
+html5lib
+lxml
+pytz
+urllib3
+chardet
