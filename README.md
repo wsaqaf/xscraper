@@ -85,6 +85,11 @@ Xscraper/
 
 ---
 
+## Auto-scrolling for fetching HAR data
+You can run the code in the [scrolldown-automatically.js](scrolldown-automatically.js) file found in this repo in the developer tools section under Console to keep scrolling the page dynamically.
+
+---
+
 ## 📄 License
 This project is licensed under the MIT License.
 
