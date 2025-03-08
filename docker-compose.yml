@@ -1,0 +1,10 @@
+version: '3.8'
+
+services:
+  xscraper:
+    build: .
+    ports:
+      - "8080:80"
+    volumes:
+      - ./UPLOAD_FOLDER:/app/UPLOAD_FOLDER
+    restart: unless-stopped
