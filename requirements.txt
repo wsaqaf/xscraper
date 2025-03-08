@@ -1,4 +1,5 @@
-pandas
 flask
+pandas
 requests
-logging
+beautifulsoup4
+langdetect

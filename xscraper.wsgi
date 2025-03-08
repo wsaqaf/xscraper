@@ -1,4 +1,5 @@
 import sys
-sys.path.insert(0, '/var/www/mecodify/xscraper')
+sys.path.insert(0, "/usr/local/lib/python3.9/site-packages")
+sys.path.insert(0, "/app")
 
-from your_flask_app_file import app as application
+from xscraper import app as application
