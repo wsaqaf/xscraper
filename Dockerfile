@@ -52,8 +52,11 @@ RUN a2dissite 000-default.conf
 RUN a2ensite xscraper.conf
 
 # Increase PHP upload limits
-RUN echo "upload_max_filesize=100M \n post_max_size=100M" > /usr/local/etc/php/conf.d/uploads.ini
-
+RUN mkdir -p /usr/local/etc/php/conf.d/ && \
+    echo "upload_max_filesize=100M" > /usr/local/etc/php/conf.d/uploads.ini && \
+    echo "post_max_size=100M" >> /usr/local/etc/php/conf.d/uploads.ini && \
+    echo "memory_limit=256M" >> /usr/local/etc/php/conf.d/uploads.ini
+    
 # Expose port 80 for web access
 EXPOSE 80
 
