@@ -6,6 +6,5 @@ services:
     ports:
       - "8080:80"
     volumes:
-      - ./UPLOAD_FOLDER:/app/UPLOAD_FOLDER
       - .:/var/www/html 
     restart: unless-stopped
