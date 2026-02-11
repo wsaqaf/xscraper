@@ -1,6 +1,4 @@
 # Dockerfile for Xscraper
-
-# Use official Python image with Apache
 FROM python:3.11
 
 # Install system dependencies including Apache and PHP
@@ -10,55 +8,36 @@ RUN apt-get update && apt-get install -y \
     php \
     libapache2-mod-php \
     php-cli \
-    php-mbstring \
-    php-xml \
-    php-curl \
-    php-gd \
-    php-zip \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory inside the container
-WORKDIR /app
+# Set working directory to the standard Apache root
+WORKDIR /var/www/html
 
-# Create upload folder and set permissions
-RUN mkdir -p /app/UPLOAD_FOLDER && \
-    chmod 777 /app/UPLOAD_FOLDER
+# Copy requirements and install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy only requirements.txt first to leverage Docker caching
-COPY requirements.txt /app/requirements.txt
+# Copy the rest of the application files
+COPY . .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r /app/requirements.txt
+# Create upload folder and set wide permissions for the web user
+RUN mkdir -p /var/www/html/UPLOAD_FOLDER && \
+    chmod -R 777 /var/www/html/UPLOAD_FOLDER && \
+    chown -R www-data:www-data /var/www/html
 
-# Now copy the rest of the application files
-COPY . /app
-
-# Copy Apache configuration file to the correct directory
+# Copy Apache configuration
 COPY xscraper.conf /etc/apache2/sites-available/xscraper.conf
+RUN a2dissite 000-default.conf && \
+    a2ensite xscraper.conf && \
+    a2enmod rewrite
 
-# Ensure correct permissions for Apache config
-RUN chmod 644 /etc/apache2/sites-available/xscraper.conf
+# --- THE FIX: DYNAMICALLY FIND PHP CONFIG PATH ---
+# This locates the actual PHP config directory and writes the limits there
+RUN PHP_CONF_DIR=$(php -i | grep "Scan this dir for additional .ini files" | cut -d" " -f5) && \
+    echo "upload_max_filesize=100M" > ${PHP_CONF_DIR}/uploads.ini && \
+    echo "post_max_size=100M" >> ${PHP_CONF_DIR}/uploads.ini && \
+    echo "memory_limit=256M" >> ${PHP_CONF_DIR}/uploads.ini
 
-# Set correct permissions for web server
-RUN chown -R www-data:www-data /app && \
-    chmod -R 755 /app
-
-# Enable required Apache modules
-RUN a2enmod rewrite
-RUN a2enmod php8.2 || a2enmod php8.1 || a2enmod php8.0 || a2enmod php7.4 || echo "No PHP module found"
-
-# Remove default site and enable our site
-RUN a2dissite 000-default.conf
-RUN a2ensite xscraper.conf
-
-# Increase PHP upload limits
-RUN mkdir -p /usr/local/etc/php/conf.d/ && \
-    echo "upload_max_filesize=100M" > /usr/local/etc/php/conf.d/uploads.ini && \
-    echo "post_max_size=100M" >> /usr/local/etc/php/conf.d/uploads.ini && \
-    echo "memory_limit=256M" >> /usr/local/etc/php/conf.d/uploads.ini
-    
-# Expose port 80 for web access
 EXPOSE 80
 
-# Start Apache in the foreground
 CMD ["apachectl", "-D", "FOREGROUND"]
