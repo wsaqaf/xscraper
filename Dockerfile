@@ -32,12 +32,12 @@ RUN a2dissite 000-default.conf && \
     a2enmod rewrite
 
 # 7. PHP Configuration for large files
-RUN CONF_DIR=$(find /etc/php -name apache2 | head -n 1) && \
-    mkdir -p "$CONF_DIR/conf.d" && \
-    echo "upload_max_filesize=100M" > "$CONF_DIR/conf.d/99-overrides.ini" && \
-    echo "post_max_size=110M" >> "$CONF_DIR/conf.d/99-overrides.ini" && \
-    echo "memory_limit=512M" >> "$CONF_DIR/conf.d/99-overrides.ini" && \
-    echo "max_execution_time=300" >> "$CONF_DIR/conf.d/99-overrides.ini"
+RUN for dir in $(find /etc/php -type d -name "conf.d"); do \
+    echo "upload_max_filesize=100M" > "$dir/99-overrides.ini" && \
+    echo "post_max_size=110M" >> "$dir/99-overrides.ini" && \
+    echo "memory_limit=512M" >> "$dir/99-overrides.ini" && \
+    echo "max_execution_time=300" >> "$dir/99-overrides.ini"; \
+done
     
 RUN mkdir -p /var/www/html/UPLOAD_FOLDER && \
     chown -R www-data:www-data /var/www/html/UPLOAD_FOLDER && \
