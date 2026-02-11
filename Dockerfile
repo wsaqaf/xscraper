@@ -36,6 +36,10 @@ RUN DIR_PATH=$(php -i | grep "Scan this dir for additional .ini files" | cut -d"
     mkdir -p "$DIR_PATH" && \
     echo "upload_max_filesize=100M\npost_max_size=100M\nmemory_limit=256M" > "$DIR_PATH/uploads.ini"
 
+RUN mkdir -p /var/www/html/UPLOAD_FOLDER && \
+    chown -R www-data:www-data /var/www/html/UPLOAD_FOLDER && \
+    chmod -R 777 /var/www/html/UPLOAD_FOLDER
+
 EXPOSE 80
 
 CMD ["apachectl", "-D", "FOREGROUND"]
