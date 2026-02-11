@@ -32,10 +32,15 @@ RUN a2dissite 000-default.conf && \
     a2enmod rewrite
 
 # 7. PHP Configuration for large files
-RUN DIR_PATH=$(php -i | grep "Scan this dir for additional .ini files" | cut -d" " -f5) && \
-    mkdir -p "$DIR_PATH" && \
-    echo "upload_max_filesize=100M\npost_max_size=100M\nmemory_limit=256M" > "$DIR_PATH/uploads.ini"
-
+RUN for dir in /etc/php/8.2/apache2/conf.d/ /etc/php/8.1/apache2/conf.d/ /etc/php/8.0/apache2/conf.d/ /etc/php/7.4/apache2/conf.d/; do \
+        if [ -d "$dir" ]; then \
+            echo "upload_max_filesize=100M" > "$dir/99-overrides.ini" && \
+            echo "post_max_size=110M" >> "$dir/99-overrides.ini" && \
+            echo "memory_limit=512M" >> "$dir/99-overrides.ini" && \
+            echo "max_execution_time=300" >> "$dir/99-overrides.ini"; \
+        fi \
+    done
+    
 RUN mkdir -p /var/www/html/UPLOAD_FOLDER && \
     chown -R www-data:www-data /var/www/html/UPLOAD_FOLDER && \
     chmod -R 777 /var/www/html/UPLOAD_FOLDER
