@@ -51,6 +51,9 @@ RUN a2enmod php8.2 || a2enmod php8.1 || a2enmod php8.0 || a2enmod php7.4 || echo
 RUN a2dissite 000-default.conf
 RUN a2ensite xscraper.conf
 
+# Increase PHP upload limits
+RUN echo "upload_max_filesize=100M \n post_max_size=100M" > /usr/local/etc/php/conf.d/uploads.ini
+
 # Expose port 80 for web access
 EXPOSE 80
 
