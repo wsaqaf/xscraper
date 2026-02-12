@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import csv
 import re
@@ -11,14 +12,14 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# Dynamic absolute paths for server portability
+# --- CONFIGURATION ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_PATH = os.path.join(BASE_DIR, "UPLOAD_FOLDER")
 
 if not os.path.exists(UPLOAD_PATH):
     os.makedirs(UPLOAD_PATH)
 
-# --- COMPREHENSIVE HEADERS ---
+# --- HEADERS ---
 TWEET_HEADER = [
     'index_on_page', 'tweet_id', 'tweet_permalink_path', 'in_reply_to_user',
     'in_reply_to_tweet', 'quoted_tweet_id', 'user_screen_name',
@@ -48,9 +49,7 @@ USER_HEADER = [
 ]
 
 # --- UTILITIES ---
-
 def initialize_record(record_type="tweet"):
-    """Ensures consistent CSV structure even if data is missing."""
     if record_type == "user":
         return {field: None if "time" not in field else datetime.now().strftime('%Y-%m-%d %H:%M:%S') for field in USER_HEADER}
     return {field: 0 if field in ['retweets', 'favorites', 'replies', 'quotes', 'views', 'video_views'] else None for field in TWEET_HEADER}
@@ -66,14 +65,19 @@ def clean_html(text):
     if not text: return ""
     return re.sub(r'<[^>]+>', '', text)
 
-# --- MAIN PROCESSING LOGIC ---
-
+# --- CORE PROCESSING LOGIC ---
 def process_har_file(filename):
-    file_path = os.path.join(UPLOAD_PATH, filename)
+    # Determine if absolute path (CLI) or relative (Flask)
+    if os.path.exists(filename):
+        file_path = filename
+    else:
+        file_path = os.path.join(UPLOAD_PATH, filename)
+    
     if not os.path.isfile(file_path):
         return {"error": f"File {filename} not found"}, 404
 
     try:
+        print(f"Loading {filename}...")
         with open(file_path, 'r', encoding="utf-8") as f:
             content_j = json.loads(f.read())
         gc.collect() 
@@ -84,18 +88,19 @@ def process_har_file(filename):
     users = {}
     index_counter = 0
 
+    print("Parsing entries...")
     if 'log' in content_j and 'entries' in content_j['log']:
         for entry in content_j['log']['entries']:
             url = entry.get('request', {}).get('url', '')
             
-            # Target X API GraphQL endpoints
+            # Target typical X endpoints
             if any(x in url for x in ['/graphql/', 'SearchTimeline', 'UserTweets']):
                 try:
                     resp_text = entry.get('response', {}).get('content', {}).get('text')
                     if not resp_text: continue
                     data_json = json.loads(resp_text)
                     
-                    # Navigate modern timeline instructions
+                    # Locate the timeline instructions
                     data_root = data_json.get('data', {})
                     search_root = data_root.get('search_by_raw_query', {}).get('search_timeline', {}).get('timeline', {})
                     user_root = data_root.get('user', {}).get('result', {}).get('timeline_v2', {}).get('timeline', {})
@@ -110,7 +115,7 @@ def process_har_file(filename):
                             for item in ins.get('entries', []):
                                 eid = item.get('entryId', '')
                                 
-                                # Skip non-tweet metadata entries to prevent hangs
+                                # Skip cursors to prevent loops/hangs
                                 if any(x in eid for x in ['cursor-', 'who-to-follow', 'message-prompt']):
                                     continue
                                 
@@ -120,14 +125,14 @@ def process_har_file(filename):
                                 t_res = content.get('tweet_results', {}).get('result', {})
                                 if not t_res: continue
                                 
-                                # Unwrap modern visibility containers
+                                # Unwrap Visibility Wrapper
                                 if t_res.get('__typename') == 'TweetWithVisibilityResults':
                                     t_res = t_res.get('tweet', {})
 
                                 if 'legacy' not in t_res: continue
                                 leg_t = t_res['legacy']
 
-                                # --- USER EXTRACTION (Core vs Legacy) ---
+                                # --- USER EXTRACTION ---
                                 u_res = t_res.get('core', {}).get('user_results', {}).get('result', {})
                                 if not u_res: continue
                                 
@@ -136,6 +141,7 @@ def process_har_file(filename):
                                     u_leg = u_res.get('legacy', {})
                                     u_core = u_res.get('core', {})
                                     u_rec = initialize_record("user")
+                                    # Dual-source extraction
                                     u_rec.update({
                                         'user_id': u_id,
                                         'user_screen_name': u_core.get('screen_name') or u_leg.get('screen_name'),
@@ -176,7 +182,6 @@ def process_har_file(filename):
                                         'tweet_permalink_path': f"https://x.com/{users[u_id]['user_screen_name']}/status/{t_id}"
                                     })
                                     
-                                    # Media & Engagement
                                     ent = leg_t.get('entities', {})
                                     if 'media' in ent:
                                         t_rec['media_link'] = " ".join([m['media_url_https'] for m in ent['media']])
@@ -190,23 +195,22 @@ def process_har_file(filename):
 
                                     tweets[t_id] = t_rec
                                     index_counter += 1
-                except:
-                    continue
+                except: continue
 
-    # Memory cleanup before CSV conversion
     del content_j
     gc.collect()
 
     if not tweets:
-        return {"error": "No data found. Ensure the HAR contains valid GraphQL responses."}, 400
+        return {"error": "No data found."}, 400
 
-    base = os.path.splitext(filename)[0]
+    base = os.path.splitext(os.path.basename(filename))[0]
     t_csv, u_csv = f"tweets_{base}.csv", f"users_{base}.csv"
     
+    # Save files
     pd.DataFrame(tweets.values())[TWEET_HEADER].to_csv(os.path.join(UPLOAD_PATH, t_csv), index=False)
     pd.DataFrame(users.values())[USER_HEADER].to_csv(os.path.join(UPLOAD_PATH, u_csv), index=False)
 
-    return {"message": "Success", "files": [t_csv, u_csv]}
+    return {"message": "Success", "tweets_count": len(tweets), "files": [t_csv, u_csv]}
 
 @app.route("/api/process", methods=["POST"])
 def process_api():
@@ -216,6 +220,27 @@ def process_api():
     file.save(file_path)
     return jsonify(process_har_file(file.filename))
 
+def find_free_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(('', 0))
+        return s.getsockname()[1]
+
 if __name__ == "__main__":
-    # Debug OFF is essential for shared hosting compatibility
-    app.run(debug=False, host='0.0.0.0', port=5000)
+    # --- HYBRID MODE: CLI OR SERVER ---
+    if len(sys.argv) > 1:
+        # 1. Command Line Mode (Runs once and exits)
+        target_file = sys.argv[1]
+        print(f"--- CLI Mode: Processing {target_file} ---")
+        result = process_har_file(target_file)
+        print(json.dumps(result, indent=2))
+        print("Done.")
+    else:
+        # 2. Server Mode (Runs indefinitely)
+        print("--- Server Mode: Waiting for API requests ---")
+        port = 5000
+        try:
+            app.run(debug=False, host='0.0.0.0', port=port)
+        except OSError:
+            port = find_free_port()
+            print(f"Port 5000 busy. Starting on port {port}")
+            app.run(debug=False, host='0.0.0.0', port=port)
