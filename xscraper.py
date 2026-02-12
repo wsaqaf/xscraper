@@ -110,7 +110,6 @@ def extract_and_store_user(obj):
     
     loc = safe_get(legacy, 'location') or safe_get(obj, 'location')
     
-    # FIX: Robust creation date extraction
     created_raw = (
         legacy.get('created_at') or 
         core.get('created_at') or 
@@ -119,6 +118,12 @@ def extract_and_store_user(obj):
     
     raw_tz = legacy.get('time_zone')
     clean_tz = clean_timezone(raw_tz)
+
+    # --- MAP VALUES ---
+    # friends_count = The number of people this user is FOLLOWING
+    # listed_count = The number of public lists this user is a member of
+    following_count = legacy.get('friends_count') 
+    lists_count = legacy.get('listed_count')
 
     if u_id not in users_db or (img and not users_db[u_id].get('user_image_url')):
         rec = initialize_record("user")
@@ -131,11 +136,14 @@ def extract_and_store_user(obj):
             'user_image_url': img,
             'user_bio': legacy.get('description'),
             'user_followers': legacy.get('followers_count'),
-            'user_friends': legacy.get('friends_count'),
+            'user_following': following_count, # Correctly mapped from friends_count
+            'user_friends': following_count,   # Redundant, but kept for compatibility
+            'user_lists': lists_count,         # Correctly mapped from listed_count
+            'user_favorites': legacy.get('favourites_count'), # Added Favorites count
             'user_tweets': legacy.get('statuses_count'),
             'user_verified': 1 if legacy.get('verified') else 0,
             'blue_verified': 1 if obj.get('is_blue_verified') else 0,
-            'user_created': format_x_date(created_raw) # Updated Logic
+            'user_created': format_x_date(created_raw)
         })
         users_db[u_id] = rec
 
