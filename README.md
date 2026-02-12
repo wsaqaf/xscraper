@@ -18,14 +18,15 @@ Xscraper is an advanced tool designed to process HTTP Archive (HAR) files from X
 The fastest way to get Xscraper running.
 
 1. **Clone and Enter the Repo:**
-   ```sh
+```sh
    git clone [https://github.com/wsaqaf/xscraper.git](https://github.com/wsaqaf/xscraper.git)
    cd xscraper
+```
 
 2. **Launch the Container:**
-   ```sh
+```sh
    docker-compose up -d
-
+```
 
 3. **Access Xscraper:**
 Visit `http://localhost:8080` in your browser.
