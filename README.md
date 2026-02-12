@@ -21,12 +21,15 @@ The fastest way to get Xscraper running.
 ```sh
    git clone [https://github.com/wsaqaf/xscraper.git](https://github.com/wsaqaf/xscraper.git)
    cd xscraper
+
 ```
 
 2. **Launch the Container:**
 ```sh
-   docker-compose up -d
+docker-compose up -d
+
 ```
+
 
 3. **Access Xscraper:**
 Visit `http://localhost:8080` in your browser.
@@ -53,23 +56,45 @@ Update your Apache configuration to use `xscraper.conf` and ensure permissions f
 
 ---
 
-## 🛠 Usage & Data Fetching
+## 🛠 Usage & Hybrid Interaction
 
-### **1. Collecting HAR Data**
+Xscraper operates in a **Hybrid Mode**, allowing you to choose the interface that best fits your workflow.
 
-To capture the necessary network traffic from X:
+### **1. Web Interface (GUI)**
+
+Ideal for individual file processing and immediate data visualization.
+
+* Upload your `.har` file through the main dashboard.
+* Once processed, use the **"View Table"** feature to inspect data or click **"Download"** to save the CSVs.
+
+### **2. Command Line Interface (CLI)**
+
+Ideal for power users, developers, or automation.
+
+* Run the extraction engine directly from your terminal:
+```sh
+python3 xscraper.py <path_to_your_file>.har
+
+```
+
+
+* The script will output the result JSON and save the two corresponding CSV files directly into the `UPLOAD_FOLDER`.
+
+---
+
+## 📊 Data Fetching Protocol
 
 1. Open X and search for your target query.
 2. Open **Developer Tools** (F12) > **Network** tab.
 3. Use the included [scrolldown-automatically.js](https://www.google.com/search?q=scrolldown-automatically.js) by pasting it into the **Console** tab to dynamically fetch tweets.
 4. Once finished, right-click any network request and select **"Save all as HAR with content"**.
 
-### **2. Processing**
+### **Output Generation**
 
-Upload your `.har` file via the Xscraper web interface. The system will:
+Regardless of the mode used, the system generates two distinct datasets:
 
-* Process the JSON in two phases (User Mining followed by Tweet Extraction).
-* Generate two CSV files: `{YourFileName}_tweets_{timestamp}.csv` and `{YourFileName}_users_{timestamp}.csv`.
+* `{YourFileName}_tweets_{timestamp}.csv`
+* `{YourFileName}_users_{timestamp}.csv`
 
 ---
 
