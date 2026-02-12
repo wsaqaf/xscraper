@@ -52,12 +52,12 @@ USER_HEADER = [
 def initialize_record(record_type="tweet"):
     if record_type == "user":
         return {field: None if "time" not in field else datetime.now().strftime('%Y-%m-%d %H:%M:%S') for field in USER_HEADER}
-    # Note: has_image and has_video default to None here automatically
     return {field: 0 if field in ['retweets', 'favorites', 'replies', 'quotes', 'views', 'video_views'] else None for field in TWEET_HEADER}
 
 def format_x_date(date_str):
     if not date_str: return None
     try:
+        # X Date Format: "Fri Apr 14 10:37:37 +0000 2017"
         dt = datetime.strptime(date_str, '%a %b %d %H:%M:%S %z %Y')
         return dt.strftime('%Y-%m-%d %H:%M:%S')
     except: return date_str
@@ -67,10 +67,8 @@ def clean_html(text):
     return re.sub(r'<[^>]+>', '', text)
 
 def safe_get(data, key):
-    """Deep retrieval that handles nested dicts"""
     if not isinstance(data, dict): return None
     val = data.get(key)
-    # Recursively unwrap if the value is a dict containing the key (e.g. {'location': {'location': '...'}})
     if isinstance(val, dict) and key in val:
         return val.get(key)
     return val
@@ -80,40 +78,41 @@ users_db = {}
 
 def extract_and_store_user(obj):
     """
-    Analyzes a JSON object. If it looks like a User, extracts data and updates the global DB.
+    Analyzes a JSON object to extract User data.
+    Updated to capture 'user_created' from the core object.
     """
     if not isinstance(obj, dict): return
+    if 'rest_id' not in obj: return
     
-    # 1. Identify if this is a User object (Broad Signature Scan)
-    if 'rest_id' not in obj:
-        return
-    
-    # Initialize containers
     legacy = obj.get('legacy') or {}
     core = obj.get('core') or {}
-    avatar = obj.get('avatar') or {} # Support for modern "avatar" object
+    avatar = obj.get('avatar') or {}
     
-    # Must have a screen_name to be valid
     screen_name = legacy.get('screen_name') or core.get('screen_name')
-    if not screen_name:
-        return
+    if not screen_name: return
 
-    # 2. Extract Data
     u_id = obj.get('rest_id')
-    
-    # Extract fields with priority: New "avatar" object -> Legacy -> Root
     img = (
         safe_get(avatar, 'image_url') or 
         safe_get(legacy, 'profile_image_url_https') or 
         safe_get(obj, 'profile_image_url_https')
     )
-    
     loc = safe_get(legacy, 'location') or safe_get(obj, 'location')
     
-    # 3. Decision Logic: Update DB
-    # Update if: New user OR Current record has no image but this one does
-    if u_id not in users_db or (img and not users_db[u_id].get('user_image_url')):
-        rec = initialize_record("user")
+    # Identify joining date: Found in 'core' for modern responses, 'legacy' for older ones
+    # In provided HAR, created_at is inside the core block 
+    raw_created_at = core.get('created_at') or legacy.get('created_at')
+    formatted_created_at = format_x_date(raw_created_at)
+
+    # Update logic: New user OR existing user missing critical fields (image or join date)
+    should_update = (
+        u_id not in users_db or 
+        (img and not users_db[u_id].get('user_image_url')) or
+        (formatted_created_at and not users_db[u_id].get('user_created'))
+    )
+
+    if should_update:
+        rec = users_db.get(u_id, initialize_record("user"))
         rec.update({
             'user_id': u_id,
             'user_screen_name': screen_name,
@@ -126,15 +125,14 @@ def extract_and_store_user(obj):
             'user_tweets': legacy.get('statuses_count'),
             'user_verified': 1 if legacy.get('verified') else 0,
             'blue_verified': 1 if obj.get('is_blue_verified') else 0,
-            'user_created': format_x_date(legacy.get('created_at'))
+            'user_created': formatted_created_at
         })
         users_db[u_id] = rec
 
 def recursive_signature_scan(data):
-    """Recursively walks the JSON tree looking for User-like objects."""
     if isinstance(data, dict):
         extract_and_store_user(data)
-        for k, v in data.items():
+        for v in data.values():
             recursive_signature_scan(v)
     elif isinstance(data, list):
         for item in data:
@@ -163,13 +161,11 @@ def process_har_file(filename):
     tweets = {}
     index_counter = 0
 
-    # --- PHASE 1: SIGNATURE MINING (Find ALL users everywhere) ---
-    print("Phase 1: Mining User Profiles via Signature Scan...")
+    print("Phase 1: Mining User Profiles...")
     if 'log' in content_j and 'entries' in content_j['log']:
         for entry in content_j['log']['entries']:
             resp_text = entry.get('response', {}).get('content', {}).get('text')
             if not resp_text: continue
-            
             try:
                 data_json = json.loads(resp_text)
                 recursive_signature_scan(data_json)
@@ -177,7 +173,6 @@ def process_har_file(filename):
 
     print(f"Found {len(users_db)} unique users.")
 
-    # --- PHASE 2: TWEET EXTRACTION ---
     print("Phase 2: Processing Tweets...")
     if 'log' in content_j and 'entries' in content_j['log']:
         for entry in content_j['log']['entries']:
@@ -188,7 +183,6 @@ def process_har_file(filename):
                     if not resp_text: continue
                     data_json = json.loads(resp_text)
                     
-                    # Navigate to instructions
                     data_root = data_json.get('data', {})
                     search_root = data_root.get('search_by_raw_query', {}).get('search_timeline', {}).get('timeline', {})
                     user_root = data_root.get('user', {}).get('result', {}).get('timeline_v2', {}).get('timeline', {})
@@ -206,22 +200,19 @@ def process_har_file(filename):
                                 
                                 content = item.get('content', {}).get('itemContent', {})
                                 t_res = content.get('tweet_results', {}).get('result', {})
-                                
                                 if t_res.get('__typename') == 'TweetWithVisibilityResults':
                                     t_res = t_res.get('tweet', {})
 
                                 if not t_res or 'legacy' not in t_res: continue
                                 leg_t = t_res['legacy']
                                 
-                                # Process User in Tweet (Last Chance to update DB)
                                 u_res = t_res.get('core', {}).get('user_results', {}).get('result', {})
-                                if u_res:
-                                    extract_and_store_user(u_res)
+                                if u_res: extract_and_store_user(u_res)
                                 
                                 u_id = u_res.get('rest_id')
                                 u_data = users_db.get(u_id, {})
-                                
                                 t_id = t_res.get('rest_id')
+
                                 if t_id and t_id not in tweets:
                                     t_rec = initialize_record("tweet")
                                     t_rec.update({
@@ -244,23 +235,12 @@ def process_har_file(filename):
                                         'tweet_permalink_path': f"https://x.com/{u_data.get('user_screen_name')}/status/{t_id}"
                                     })
                                     
-                                    # --- UPDATED MEDIA LOGIC ---
                                     ent = leg_t.get('entities', {})
                                     if 'media' in ent:
                                         t_rec['media_link'] = " ".join([m['media_url_https'] for m in ent['media']])
-                                        
-                                        # Use string "1" to strictly enforce integer look in CSV
-                                        # and None for blank (avoids 1.0 floats)
-                                        if any(m['type'] == 'photo' for m in ent['media']):
-                                            t_rec['has_image'] = "1"
-                                        
-                                        if any(m['type'] == 'video' for m in ent['media']):
-                                            t_rec['has_video'] = "1"
-
-                                        v_views = 0
-                                        for m in ent['media']:
-                                            if 'mediaStats' in m and 'viewCount' in m['mediaStats']:
-                                                v_views += m['mediaStats']['viewCount']
+                                        if any(m['type'] == 'photo' for m in ent['media']): t_rec['has_image'] = "1"
+                                        if any(m['type'] == 'video' for m in ent['media']): t_rec['has_video'] = "1"
+                                        v_views = sum([m.get('mediaStats', {}).get('viewCount', 0) for m in ent['media'] if 'mediaStats' in m])
                                         t_rec['video_views'] = v_views
 
                                     tweets[t_id] = t_rec
@@ -273,9 +253,7 @@ def process_har_file(filename):
     base = os.path.splitext(os.path.basename(filename))[0]
     t_csv, u_csv = f"tweets_{base}.csv", f"users_{base}.csv"
     
-    # Save files with explicit column headers
     try:
-        # Tweets DataFrame
         df_tweets = pd.DataFrame(list(tweets.values()))
         if df_tweets.empty: df_tweets = pd.DataFrame(columns=TWEET_HEADER)
         else:
@@ -284,7 +262,6 @@ def process_har_file(filename):
             df_tweets = df_tweets[TWEET_HEADER]
         df_tweets.to_csv(os.path.join(UPLOAD_PATH, t_csv), index=False)
 
-        # Users DataFrame
         df_users = pd.DataFrame(list(users_db.values()))
         if df_users.empty: df_users = pd.DataFrame(columns=USER_HEADER)
         else:
@@ -292,9 +269,7 @@ def process_har_file(filename):
                 if col not in df_users.columns: df_users[col] = None
              df_users = df_users[USER_HEADER]
         df_users.to_csv(os.path.join(UPLOAD_PATH, u_csv), index=False)
-
     except Exception as e:
-        print(f"Error saving CSVs: {e}")
         return {"error": str(e)}, 500
 
     return {"message": "Success", "tweets_count": len(tweets), "files": [t_csv, u_csv]}
@@ -315,16 +290,12 @@ def find_free_port():
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         target_file = sys.argv[1]
-        print(f"--- CLI Mode: Processing {target_file} ---")
         result = process_har_file(target_file)
         print(json.dumps(result, indent=2))
-        print("Done.")
     else:
-        print("--- Server Mode: Waiting for API requests ---")
         port = 5000
         try:
             app.run(debug=False, host='0.0.0.0', port=port)
         except OSError:
             port = find_free_port()
-            print(f"Port 5000 busy. Starting on port {port}")
             app.run(debug=False, host='0.0.0.0', port=port)
