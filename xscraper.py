@@ -23,7 +23,7 @@ if not os.path.exists(UPLOAD_PATH):
 TWEET_HEADER = [
     'index_on_page', 'tweet_id', 'tweet_permalink_path', 'in_reply_to_user',
     'in_reply_to_tweet', 'quoted_tweet_id', 'user_screen_name',
-    'user_id', 'user_name', 'user_location', 'user_timezone', 'user_lang',
+    'user_id', 'user_name', 'user_location', 'user_lang',
     'user_bio', 'user_image_url', 'date_time', 'tweet_date',
     'coordinates_long', 'coordinates_lat', 'country', 'location_fullname',
     'location_name', 'location_type', 'raw_text', 'clear_text', 'user_verified',
@@ -40,7 +40,7 @@ TWEET_HEADER = [
 
 USER_HEADER = [
     'user_id', 'user_screen_name', 'user_name', 'user_lang', 'user_geo_enabled',
-    'user_location', 'user_timezone', 'user_utc_offset', 'user_tweets', 
+    'user_location', 'user_utc_offset', 'user_tweets', 
     'user_followers', 'user_following', 'user_friends', 'user_favorites', 
     'user_lists', 'user_bio', 'user_verified', 'user_protected', 
     'user_withheld_in_countries', 'user_withheld_scope', 'user_created', 

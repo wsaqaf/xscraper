@@ -34,7 +34,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_FILES["fileToUpload"])) {
         $return_var = 0;
         
         // 2. Execute Python script
-        $command = "/usr/local/bin/python3 " . escapeshellarg(PYTHON_SCRIPT) . " " . escapeshellarg($targetFile) . " 2>&1";
+	$pythonPath = trim(shell_exec('which python3'));
+	if (empty($pythonPath)) {
+	    $pythonPath = 'python3';
+	}
+
+	$command = $pythonPath . " " . escapeshellarg(PYTHON_SCRIPT) . " " . escapeshellarg($targetFile) . " 2>&1";
         exec($command, $output, $return_var);
 
         if ($return_var === 0) {

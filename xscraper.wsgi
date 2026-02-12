@@ -1,6 +1,7 @@
 import sys
 sys.path.insert(0, "/usr/local/lib/python3.11/site-packages")
 sys.path.insert(0, '/var/www/html')
+sys.path.insert(0, "/usr/lib/python3.11/site-packages")
 
 from xscraper import app as application
 
