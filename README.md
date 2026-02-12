@@ -20,13 +20,11 @@ The fastest way to get Xscraper running.
 1. **Clone and Enter the Repo:**
    ```sh
    git clone [https://github.com/wsaqaf/xscraper.git](https://github.com/wsaqaf/xscraper.git)
-   cd xscraper
-```
+   cd xscraper```
 
 2. **Launch the Container:**
    ```sh
-   docker-compose up -d
-```
+   docker-compose up -d```
 
 
 3. **Access Xscraper:**
