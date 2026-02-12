@@ -52,6 +52,7 @@ USER_HEADER = [
 def initialize_record(record_type="tweet"):
     if record_type == "user":
         return {field: None if "time" not in field else datetime.now().strftime('%Y-%m-%d %H:%M:%S') for field in USER_HEADER}
+    # Note: has_image and has_video default to None here automatically
     return {field: 0 if field in ['retweets', 'favorites', 'replies', 'quotes', 'views', 'video_views'] else None for field in TWEET_HEADER}
 
 def format_x_date(date_str):
@@ -243,11 +244,19 @@ def process_har_file(filename):
                                         'tweet_permalink_path': f"https://x.com/{u_data.get('user_screen_name')}/status/{t_id}"
                                     })
                                     
+                                    # --- UPDATED MEDIA LOGIC ---
                                     ent = leg_t.get('entities', {})
                                     if 'media' in ent:
                                         t_rec['media_link'] = " ".join([m['media_url_https'] for m in ent['media']])
-                                        t_rec['has_image'] = 1 if any(m['type'] == 'photo' for m in ent['media']) else 0
-                                        t_rec['has_video'] = 1 if any(m['type'] == 'video' for m in ent['media']) else 0
+                                        
+                                        # Use string "1" to strictly enforce integer look in CSV
+                                        # and None for blank (avoids 1.0 floats)
+                                        if any(m['type'] == 'photo' for m in ent['media']):
+                                            t_rec['has_image'] = "1"
+                                        
+                                        if any(m['type'] == 'video' for m in ent['media']):
+                                            t_rec['has_video'] = "1"
+
                                         v_views = 0
                                         for m in ent['media']:
                                             if 'mediaStats' in m and 'viewCount' in m['mediaStats']:
