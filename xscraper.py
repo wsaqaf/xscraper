@@ -76,7 +76,6 @@ def safe_get(data, key):
 users_db = {}
 
 def extract_and_store_user(obj):
-    """Analyzes HAR structure to extract join dates, bio links, geo perms, and blue status."""
     if not isinstance(obj, dict) or 'rest_id' not in obj: return
     
     legacy = obj.get('legacy') or {}
@@ -88,10 +87,7 @@ def extract_and_store_user(obj):
     u_id = obj.get('rest_id')
     img = (safe_get(avatar, 'image_url') or safe_get(legacy, 'profile_image_url_https') or safe_get(obj, 'profile_image_url_https'))
     
-    # Extract Bio Links (user_url)
     bio_links = [u.get('expanded_url') for u in legacy.get('entities', {}).get('description', {}).get('urls', []) if u.get('expanded_url')]
-    
-    # Joining Date (user_created)
     raw_created_at = core.get('created_at') or legacy.get('created_at')
     formatted_created_at = format_x_date(raw_created_at)
 
@@ -178,17 +174,13 @@ def process_har_file(filename):
 
                                 if t_id and t_id not in tweets:
                                     t_rec = initialize_record("tweet")
-                                    
-                                    # Entity Mapping
                                     ent = leg_t.get('entities', {})
                                     h_tags = " ".join([h['text'] for h in ent.get('hashtags', [])])
                                     u_ments = " ".join([m['screen_name'] for m in ent.get('user_mentions', [])])
                                     exp_links = " ".join([l['expanded_url'] for l in ent.get('urls', []) if 'expanded_url' in l])
-                                    
                                     full_dt = format_x_date(leg_t.get('created_at'))
                                     
                                     # Retweet Logic
-                                    is_rt = 1 if leg_t.get('retweeted_status_id_str') else 0
                                     rt_tweet_id = leg_t.get('retweeted_status_id_str')
                                     rt_user_id = None
                                     rt_res = leg_t.get('retweeted_status_result', {}).get('result', {})
@@ -219,15 +211,14 @@ def process_har_file(filename):
                                         'hashtags': h_tags,
                                         'user_mentions': u_ments,
                                         'expanded_links': exp_links,
-                                        'is_retweet': is_rt,
+                                        'is_retweet': 1 if rt_tweet_id else 0,
                                         'retweeted_tweet_id': rt_tweet_id,
                                         'retweeted_user_id': rt_user_id,
                                         'is_reply': 1 if leg_t.get('in_reply_to_status_id_str') else 0,
                                         'is_quote': 1 if t_res.get('quoted_status_result') else 0,
-                                        'is_referenced': 1 if (leg_t.get('in_reply_to_status_id_str') or t_res.get('quoted_status_result') or is_rt) else 0
+                                        'is_referenced': 1 if (leg_t.get('in_reply_to_status_id_str') or t_res.get('quoted_status_result') or rt_tweet_id) else 0
                                     })
                                     
-                                    # Geo Mapping (Direct Variable Names)
                                     geo = leg_t.get('coordinates')
                                     if geo and geo.get('type') == 'Point':
                                         t_rec['coordinates_long'], t_rec['coordinates_lat'] = geo['coordinates'][0], geo['coordinates'][1]
@@ -246,12 +237,18 @@ def process_har_file(filename):
                                     index_counter += 1
                 except: continue
 
-    base = os.path.splitext(os.path.basename(filename))[0]
-    t_csv, u_csv = f"tweets_{base}.csv", f"users_{base}.csv"
+    # --- UPDATED NAMING CONVENTION ---
+    base_name = os.path.splitext(os.path.basename(filename))[0]
+    dt_postfix = datetime.now().strftime('%Y%m%d_%H%M%S')
+    
+    t_csv = f"{base_name}_tweets_{dt_postfix}.csv"
+    u_csv = f"{base_name}_users_{dt_postfix}.csv"
+
     try:
         pd.DataFrame(list(tweets.values())).reindex(columns=TWEET_HEADER).to_csv(os.path.join(UPLOAD_PATH, t_csv), index=False)
         pd.DataFrame(list(users_db.values())).reindex(columns=USER_HEADER).to_csv(os.path.join(UPLOAD_PATH, u_csv), index=False)
     except Exception as e: return {"error": str(e)}, 500
+
     return {"message": "Success", "tweets_count": len(tweets), "files": [t_csv, u_csv]}
 
 @app.route("/api/process", methods=["POST"])
