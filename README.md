@@ -1,99 +1,97 @@
 # Xscraper
 
-Xscraper is a web-based tool designed to process HTTP Archive (HAR) files, extract tweet-related data, and provide structured output in CSV format. The system runs using Python and PHP with Apache, making it accessible via a web interface.
+Xscraper is an advanced tool designed to process HTTP Archive (HAR) files from X (formerly Twitter). It extracts rich tweet metadata and detailed user profiles, converting messy network traffic into structured, research-ready CSV datasets.
 
-## Features
-- Upload HAR files and extract tweets and user information.
-- Store extracted data in CSV format.
-- Web-based interface for viewing and downloading processed data.
-- Fully containerized with Docker for easy deployment.
-
----
-
-## 🚀 Deployment Options
-Xscraper can be deployed in two ways:
-
-### **Option 1: Manual Installation**
-If you want to run Xscraper without Docker, follow these steps:
-
-1. **Clone the repository:**
-   ```sh
-   git clone https://github.com/wsaqaf/xscraper.git
-   cd xscraper
-   ```
-
-2. **Install required dependencies:**
-   - **System Packages:**
-     ```sh
-     sudo apt update && sudo apt install -y apache2 libapache2-mod-wsgi-py3 php-cli php python3-pip
-     ```
-   - **Python Libraries:**
-     ```sh
-     pip install -r requirements.txt
-     ```
-
-3. **Configure Apache & WSGI:**
-   ```sh
-   sudo cp xscraper.conf /etc/apache2/sites-available/xscraper.conf
-   sudo a2ensite xscraper
-   sudo systemctl restart apache2
-   ```
-
-4. **Access the app:**
-   Open a browser and visit:
-   ```
-   http://localhost
-   ```
+## ✨ Key Features
+- **Intelligent Extraction**: Automatically captures account creation dates, all links within user bios, and account-level geo-location permissions.
+- **Rich Tweet Metadata**: Parses hashtags, user mentions, expanded URLs, blue verification status, and engagement metrics (replies, retweets, likes).
+- **Geographic Precision**: Extracts tweet-specific coordinates (longitude/latitude) and detailed place information (country, city type) when available.
+- **Preserved Filenames**: Output CSVs are automatically named based on your original HAR file for easy dataset management.
+- **Integrated Viewer**: Built-in web interface to visualize your data in searchable, sortable tables before downloading.
+- **Fully Containerized**: Optimized for Docker with auto-configured Apache and PHP settings for handling large HAR files.
 
 ---
 
-### **Option 2: Deploy with Docker (Recommended)**
-This is the **easiest way** to set up Xscraper.
+## 🚀 Getting Started
 
-1. **Clone the repository:**
+### **Option 1: Deploy with Docker (Recommended)**
+The fastest way to get Xscraper running.
+
+1. **Clone and Enter the Repo:**
    ```sh
-   git clone https://github.com/wsaqaf/xscraper.git
+   git clone [https://github.com/wsaqaf/xscraper.git](https://github.com/wsaqaf/xscraper.git)
    cd xscraper
-   ```
 
-2. **Run Xscraper using Docker Compose:**
-   ```sh
-   docker-compose up -d
-   ```
+```
 
-3. **Access the app:**
-   Open a browser and visit:
-   ```
-   http://localhost:8080
-   ```
+2. **Launch the Container:**
+```sh
+docker-compose up -d
+
+```
+
+
+3. **Access Xscraper:**
+Visit `http://localhost:8080` in your browser.
+
+---
+
+### **Option 2: Manual Installation**
+
+For users preferring a local system installation.
+
+1. **Install System Dependencies:**
+* **Debian/Ubuntu**: `sudo apt update && sudo apt install apache2 php python3-pip libapache2-mod-wsgi-py3`
+
+
+2. **Install Python Libraries:**
+```sh
+pip install -r requirements.txt
+
+```
+
+
+3. **Configure Web Server:**
+Update your Apache configuration to use `xscraper.conf` and ensure permissions for the `UPLOAD_FOLDER` are set to `777`.
+
+---
+
+## 🛠 Usage & Data Fetching
+
+### **1. Collecting HAR Data**
+
+To capture the necessary network traffic from X:
+
+1. Open X and search for your target query.
+2. Open **Developer Tools** (F12) > **Network** tab.
+3. Use the included [scrolldown-automatically.js](https://www.google.com/search?q=scrolldown-automatically.js) by pasting it into the **Console** tab to dynamically fetch tweets.
+4. Once finished, right-click any network request and select **"Save all as HAR with content"**.
+
+### **2. Processing**
+
+Upload your `.har` file via the Xscraper web interface. The system will:
+
+* Process the JSON in two phases (User Mining followed by Tweet Extraction).
+* Generate two CSV files: `{YourFileName}_tweets_{timestamp}.csv` and `{YourFileName}_users_{timestamp}.csv`.
 
 ---
 
 ## 📁 File Structure
-```
-Xscraper/
-│── Dockerfile         # Defines the Docker container
-│── docker-compose.yml # Simplifies deployment with Docker
-│── xscraper.py        # Python script to process HAR files
-│── index.php          # Web interface for uploading files
-│── view_tweets.php    # Displays processed data
-│── xscraper.conf      # Apache configuration for deployment
-│── xscraper.wsgi      # WSGI entry point for running Python app
-│── UPLOAD_FOLDER/     # Stores uploaded files and processed data
-│── README.md          # Documentation
-```
 
----
-
-## Auto-scrolling for fetching HAR data
-You can run the code in the [scrolldown-automatically.js](scrolldown-automatically.js) file found in this repo in the developer tools section under Console to keep scrolling the page dynamically.
+* `xscraper.py`: The core extraction engine (Python).
+* `index.php`: The main upload and processing interface.
+* `view_tweets.php`: Advanced dataset visualization tool.
+* `xscraper.wsgi/conf`: Integration layers for Apache.
+* `UPLOAD_FOLDER/`: Secure storage for your datasets.
 
 ---
 
 ## 📄 License
+
 This project is licensed under the MIT License.
 
 ## 🤝 Contributors
-- **Walid Saqaf** (walid[@]al-saqaf.se)
 
-For any issues or feature requests, feel free to submit a pull request or open an issue on [GitHub](https://github.com/wsaqaf/xscraper).
+* **Walid Saqaf** ([walid@al-saqaf.se](mailto:walid@al-saqaf.se))
+
+For feature requests or issues, please open a pull request on the [GitHub repository](https://github.com/wsaqaf/xscraper).
