@@ -1,7 +1,7 @@
 <?php
 /**
  * Consolidated index.php for Xscraper
- * Ensures paths are dynamic and compatible with Docker /var/www/html
+ * Fixes naming convention and restores View Table/Styling features.
  */
 
 // Define absolute paths relative to this file
@@ -16,44 +16,48 @@ if (!is_dir(UPLOAD_FOLDER)) {
 // Handle File Upload and Processing
 $message = "";
 $processed = false;
-$uniqueId = "";
+$tweetsFile = "";
+$usersFile = "";
 
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_FILES["fileToUpload"])) {
-    $uniqueId = uniqid(date('YmdHis') . '_', true);
-    $uploadedFileName = $uniqueId . ".har";
+    // 1. Get original filename and sanitize (No timestamp prefix added here)
+    $originalName = pathinfo($_FILES["fileToUpload"]["name"], PATHINFO_FILENAME);
+    $sanitizedName = preg_replace("/[^a-zA-Z0-9\._-]/", "_", $originalName);
+    
+    // The HAR file will be saved as "OriginalName.har"
+    $baseFileName = $sanitizedName;
+    $uploadedFileName = $baseFileName . ".har";
     $targetFile = UPLOAD_FOLDER . $uploadedFileName;
 
     if (move_uploaded_file($_FILES["fileToUpload"]["tmp_name"], $targetFile)) {
         $output = [];
         $return_var = 0;
         
-        // Execute Python script using the Python 3.11 binary inside the container
+        // 2. Execute Python script
         $command = "/usr/local/bin/python3 " . escapeshellarg(PYTHON_SCRIPT) . " " . escapeshellarg($targetFile) . " 2>&1";
         exec($command, $output, $return_var);
 
         if ($return_var === 0) {
-            // Determine the base name the Python script used
-            // The Python script logic usually results in tweets_FILENAME.csv
-            $baseName = $uploadedFileName; 
-            $tweetsFile = "tweets_" . $baseName . ".csv";
-            $usersFile = "users_" . $baseName . ".csv";
-            
-            // Check if Python script produced files with or without the .har extension in the name
-            // (Adjusting based on common python os.path.splitext behavior)
-            if (!file_exists(UPLOAD_FOLDER . $tweetsFile)) {
-                 $baseNameWithoutExt = pathinfo($uploadedFileName, PATHINFO_FILENAME);
-                 $tweetsFile = "tweets_" . $baseNameWithoutExt . ".csv";
-                 $usersFile = "users_" . $baseNameWithoutExt . ".csv";
+            // 3. Scan directory to find the files xscraper.py created (it adds its own timestamp postfix)
+            $files = scandir(UPLOAD_FOLDER);
+            foreach ($files as $file) {
+                // Find files starting with "OriginalName_tweets_" and "OriginalName_users_"
+                if (strpos($file, $baseFileName . "_tweets_") === 0) {
+                    $tweetsFile = $file;
+                }
+                if (strpos($file, $baseFileName . "_users_") === 0) {
+                    $usersFile = $file;
+                }
             }
             
-            if (file_exists(UPLOAD_FOLDER . $tweetsFile) && file_exists(UPLOAD_FOLDER . $usersFile)) {
+            if ($tweetsFile && $usersFile) {
                  $message = "File processed successfully!";
                  $processed = true;
             } else {
-                 $message = "Error: Output files not found. Python output: " . implode("\n", $output);
+                 $message = "Error: Output files not found. Check if Python script produced files correctly.";
             }
         } else {
-            $message = "Error executing Python script. Return var: $return_var. Output: " . implode("\n", $output);
+            $message = "Error executing Python script. Output: " . implode("\n", $output);
         }
     } else {
         $message = "Error uploading file.";
@@ -72,7 +76,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_FILES["fileToUpload"])) {
         body { background-color: #f8f9fa; padding-top: 50px; padding-bottom: 50px; }
         .container { max-width: 600px; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
         .footer { margin-top: 20px; text-align: center; color: #777; }
-        /* Ensure buttons wrap nicely on mobile */
         .btn-group-responsive { display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
         @media (max-width: 576px) {
             .list-group-item { flex-direction: column; align-items: flex-start !important; }
@@ -123,7 +126,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_FILES["fileToUpload"])) {
                 <div class="form-group">
                     <label for="fileToUpload">Select a <strong>.har</strong> file exported from X/Twitter network traffic:</label>
                     <input type="file" class="form-control-file border p-2 bg-white rounded" name="fileToUpload" id="fileToUpload" required accept=".har,.json">
-                    <small class="form-text text-muted">Maximum file size: 100MB.</small>
+                    <small class="form-text text-muted">Original filename will be preserved.</small>
                 </div>
                 <button type="submit" class="btn btn-primary btn-block btn-lg shadow-sm">Upload & Process</button>
             </form>
