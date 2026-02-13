@@ -119,16 +119,13 @@ def extract_and_store_user(obj):
     raw_tz = legacy.get('time_zone')
     clean_tz = clean_timezone(raw_tz)
 
-    # --- MAP VALUES ---
-    # friends_count = The number of people this user is FOLLOWING
-    # listed_count = The number of public lists this user is a member of
     following_count = legacy.get('friends_count') 
     lists_count = legacy.get('listed_count')
 
     if u_id not in users_db or (img and not users_db[u_id].get('user_image_url')):
         rec = initialize_record("user")
         rec.update({
-            'user_id': str(u_id), # Ensure ID is string to prevent SciNotation
+            'user_id': u_id,
             'user_screen_name': screen_name,
             'user_name': legacy.get('name') or core.get('name'),
             'user_location': loc,
@@ -139,7 +136,7 @@ def extract_and_store_user(obj):
             'user_following': following_count, 
             'user_friends': following_count,   
             'user_lists': lists_count,         
-            'user_favorites': legacy.get('favourites_count'), 
+            'user_favorites': legacy.get('favourites_count'),
             'user_tweets': legacy.get('statuses_count'),
             'user_verified': 1 if legacy.get('verified') else 0,
             'blue_verified': 1 if obj.get('is_blue_verified') else 0,
@@ -235,55 +232,104 @@ def process_har_file(filename):
                                 if t_id and t_id not in tweets:
                                     t_rec = initialize_record("tweet")
                                     
-                                    # --- EXTRACT MENTIONS & REPLIES (FIX) ---
-                                    ent = leg_t.get('entities', {})
-                                    mentions_str = ""
-                                    if 'user_mentions' in ent:
-                                        # Join screen names with spaces: "user1 user2"
-                                        mentions_str = " ".join([m['screen_name'] for m in ent['user_mentions']])
-                                    
+                                    # COMMUNICATION LOGIC
+                                    reply_to_tweet_id = leg_t.get('in_reply_to_status_id_str')
                                     reply_to_user = leg_t.get('in_reply_to_screen_name')
-                                    reply_to_tweet = leg_t.get('in_reply_to_status_id_str')
+                                    is_reply_flag = "1" if reply_to_tweet_id else None
                                     
+                                    is_retweet_flag = "1" if leg_t.get('retweeted_status_id_str') else None
+                                    
+                                    quoted_id = leg_t.get('quoted_status_id_str')
+                                    is_quote_flag = "1" if (leg_t.get('is_quote_status') or quoted_id) else None
+
+                                    # DATE LOGIC
+                                    full_date = format_x_date(leg_t.get('created_at'))
+                                    short_date = full_date.split(' ')[0] if full_date else None
+
+                                    # HASHTAG LOGIC (REGEX)
+                                    raw_text = leg_t.get('full_text', '')
+                                    extracted_hashtags = re.findall(r"#(\w+)", raw_text)
+                                    hashtags_str = " ".join(extracted_hashtags) if extracted_hashtags else None
+
+                                    # LINK LOGIC (URLS)
+                                    entities = leg_t.get('entities', {})
+                                    url_objects = entities.get('urls', [])
+                                    
+                                    links_list = []
+                                    expanded_list = []
+                                    has_link_flag = None
+
+                                    if url_objects:
+                                        has_link_flag = "1"
+                                        for u in url_objects:
+                                            if u.get('url'): links_list.append(u.get('url'))
+                                            if u.get('expanded_url'): expanded_list.append(u.get('expanded_url'))
+                                    
+                                    links_str = " ".join(links_list) if links_list else None
+                                    expanded_str = " ".join(expanded_list) if expanded_list else None
+
                                     t_rec.update({
                                         'index_on_page': index_counter,
-                                        'tweet_id': str(t_id), # String to force ID preservation
-                                        'user_id': str(u_id),
+                                        'tweet_id': t_id,
+                                        'user_id': u_id,
                                         'user_screen_name': u_data.get('user_screen_name'),
                                         'user_name': u_data.get('user_name'),
                                         'user_location': u_data.get('user_location'),
                                         'user_timezone': u_data.get('user_timezone'),
                                         'user_image_url': u_data.get('user_image_url'),
-                                        'raw_text': leg_t.get('full_text'),
-                                        'clear_text': clean_html(leg_t.get('full_text')),
-                                        'date_time': format_x_date(leg_t.get('created_at')),
+                                        'user_bio': u_data.get('user_bio'),
+                                        'user_verified': u_data.get('user_verified'),
+                                        'blue_verified': u_data.get('blue_verified'),
+                                        
+                                        'raw_text': raw_text,
+                                        'clear_text': clean_html(raw_text),
+                                        'date_time': full_date,
+                                        'tweet_date': short_date,
+                                        'tweet_language': leg_t.get('lang'),
+
+                                        'in_reply_to_tweet': reply_to_tweet_id,
+                                        'in_reply_to_user': reply_to_user,
+                                        'is_reply': is_reply_flag,
+                                        'is_retweet': is_retweet_flag,
+                                        'retweeted_tweet_id': leg_t.get('retweeted_status_id_str'),
+                                        'is_quote': is_quote_flag,
+                                        'quoted_tweet_id': quoted_id if is_quote_flag else None,
+
+                                        'hashtags': hashtags_str,
+                                        'has_link': has_link_flag,
+                                        'links': links_str,
+                                        'expanded_links': expanded_str,
+
                                         'retweets': leg_t.get('retweet_count', 0),
                                         'favorites': leg_t.get('favorite_count', 0),
                                         'replies': leg_t.get('reply_count', 0),
                                         'quotes': leg_t.get('quote_count', 0),
                                         'views': t_res.get('views', {}).get('count', 0),
                                         'source': clean_html(t_res.get('source', '')),
-                                        'tweet_permalink_path': f"https://x.com/{u_data.get('user_screen_name')}/status/{t_id}",
-                                        # Populated fields:
-                                        'user_mentions': mentions_str,
-                                        'in_reply_to_user': reply_to_user,
-                                        'in_reply_to_tweet': str(reply_to_tweet) if reply_to_tweet else None,
-                                        'is_reply': 1 if reply_to_tweet else 0,
-                                        'is_retweet': 1 if leg_t.get('retweeted_status_result') else 0,
-                                        'is_quote': 1 if leg_t.get('is_quote_status') else 0
+                                        'tweet_permalink_path': f"https://x.com/{u_data.get('user_screen_name')}/status/{t_id}"
                                     })
                                     
-                                    if 'media' in ent:
-                                        t_rec['media_link'] = " ".join([m['media_url_https'] for m in ent['media']])
-                                        if any(m['type'] == 'photo' for m in ent['media']):
+                                    # MEDIA LOGIC (Updated to check extended_entities first)
+                                    media_source = leg_t.get('extended_entities') or leg_t.get('entities') or {}
+                                    media_list = media_source.get('media', [])
+
+                                    if media_list:
+                                        t_rec['media_link'] = " ".join([m.get('media_url_https', '') for m in media_list])
+                                        
+                                        if any(m.get('type') == 'photo' for m in media_list):
                                             t_rec['has_image'] = "1"
-                                        if any(m['type'] == 'video' for m in ent['media']):
+                                        
+                                        if any(m.get('type') == 'video' or m.get('type') == 'animated_gif' for m in media_list):
                                             t_rec['has_video'] = "1"
+
                                         v_views = 0
-                                        for m in ent['media']:
+                                        for m in media_list:
+                                            # Check mediaStats -> viewCount
                                             if 'mediaStats' in m and 'viewCount' in m['mediaStats']:
                                                 v_views += m['mediaStats']['viewCount']
-                                        t_rec['video_views'] = v_views
+                                        
+                                        if v_views > 0:
+                                            t_rec['video_views'] = v_views
 
                                     tweets[t_id] = t_rec
                                     index_counter += 1
@@ -298,31 +344,30 @@ def process_har_file(filename):
     u_csv = f"{base_name}_users_{dt_postfix}.csv"
 
     try:
+        # Save Tweets
         df_tweets = pd.DataFrame(list(tweets.values()))
-        if df_tweets.empty: 
-            df_tweets = pd.DataFrame(columns=TWEET_HEADER)
+        if df_tweets.empty: df_tweets = pd.DataFrame(columns=TWEET_HEADER)
         else:
-            # Ensure columns exist
             for col in TWEET_HEADER:
                 if col not in df_tweets.columns: df_tweets[col] = None
             df_tweets = df_tweets[TWEET_HEADER]
-            
-        # Force string type for IDs to prevent Excel scientific notation conversion
-        for col in ['tweet_id', 'user_id', 'in_reply_to_tweet', 'quoted_tweet_id']:
-            if col in df_tweets.columns:
-                df_tweets[col] = df_tweets[col].astype(str).replace('nan', '')
-
+        
+        # Force string for IDs
+        if 'tweet_id' in df_tweets.columns:
+             df_tweets['tweet_id'] = df_tweets['tweet_id'].astype(str).replace('nan', '')
+        if 'user_id' in df_tweets.columns:
+             df_tweets['user_id'] = df_tweets['user_id'].astype(str).replace('nan', '')
+             
         df_tweets.to_csv(os.path.join(UPLOAD_PATH, t_csv), index=False, quoting=csv.QUOTE_ALL)
 
+        # Save Users
         df_users = pd.DataFrame(list(users_db.values()))
-        if df_users.empty: 
-            df_users = pd.DataFrame(columns=USER_HEADER)
+        if df_users.empty: df_users = pd.DataFrame(columns=USER_HEADER)
         else:
              for col in USER_HEADER:
                 if col not in df_users.columns: df_users[col] = None
              df_users = df_users[USER_HEADER]
              
-        # Force string for User IDs
         if 'user_id' in df_users.columns:
              df_users['user_id'] = df_users['user_id'].astype(str).replace('nan', '')
 
