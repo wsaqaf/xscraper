@@ -128,7 +128,7 @@ def extract_and_store_user(obj):
     if u_id not in users_db or (img and not users_db[u_id].get('user_image_url')):
         rec = initialize_record("user")
         rec.update({
-            'user_id': u_id,
+            'user_id': str(u_id), # Ensure ID is string to prevent SciNotation
             'user_screen_name': screen_name,
             'user_name': legacy.get('name') or core.get('name'),
             'user_location': loc,
@@ -136,10 +136,10 @@ def extract_and_store_user(obj):
             'user_image_url': img,
             'user_bio': legacy.get('description'),
             'user_followers': legacy.get('followers_count'),
-            'user_following': following_count, # Correctly mapped from friends_count
-            'user_friends': following_count,   # Redundant, but kept for compatibility
-            'user_lists': lists_count,         # Correctly mapped from listed_count
-            'user_favorites': legacy.get('favourites_count'), # Added Favorites count
+            'user_following': following_count, 
+            'user_friends': following_count,   
+            'user_lists': lists_count,         
+            'user_favorites': legacy.get('favourites_count'), 
             'user_tweets': legacy.get('statuses_count'),
             'user_verified': 1 if legacy.get('verified') else 0,
             'blue_verified': 1 if obj.get('is_blue_verified') else 0,
@@ -234,10 +234,21 @@ def process_har_file(filename):
                                 t_id = t_res.get('rest_id')
                                 if t_id and t_id not in tweets:
                                     t_rec = initialize_record("tweet")
+                                    
+                                    # --- EXTRACT MENTIONS & REPLIES (FIX) ---
+                                    ent = leg_t.get('entities', {})
+                                    mentions_str = ""
+                                    if 'user_mentions' in ent:
+                                        # Join screen names with spaces: "user1 user2"
+                                        mentions_str = " ".join([m['screen_name'] for m in ent['user_mentions']])
+                                    
+                                    reply_to_user = leg_t.get('in_reply_to_screen_name')
+                                    reply_to_tweet = leg_t.get('in_reply_to_status_id_str')
+                                    
                                     t_rec.update({
                                         'index_on_page': index_counter,
-                                        'tweet_id': t_id,
-                                        'user_id': u_id,
+                                        'tweet_id': str(t_id), # String to force ID preservation
+                                        'user_id': str(u_id),
                                         'user_screen_name': u_data.get('user_screen_name'),
                                         'user_name': u_data.get('user_name'),
                                         'user_location': u_data.get('user_location'),
@@ -252,10 +263,16 @@ def process_har_file(filename):
                                         'quotes': leg_t.get('quote_count', 0),
                                         'views': t_res.get('views', {}).get('count', 0),
                                         'source': clean_html(t_res.get('source', '')),
-                                        'tweet_permalink_path': f"https://x.com/{u_data.get('user_screen_name')}/status/{t_id}"
+                                        'tweet_permalink_path': f"https://x.com/{u_data.get('user_screen_name')}/status/{t_id}",
+                                        # Populated fields:
+                                        'user_mentions': mentions_str,
+                                        'in_reply_to_user': reply_to_user,
+                                        'in_reply_to_tweet': str(reply_to_tweet) if reply_to_tweet else None,
+                                        'is_reply': 1 if reply_to_tweet else 0,
+                                        'is_retweet': 1 if leg_t.get('retweeted_status_result') else 0,
+                                        'is_quote': 1 if leg_t.get('is_quote_status') else 0
                                     })
                                     
-                                    ent = leg_t.get('entities', {})
                                     if 'media' in ent:
                                         t_rec['media_link'] = " ".join([m['media_url_https'] for m in ent['media']])
                                         if any(m['type'] == 'photo' for m in ent['media']):
@@ -282,20 +299,34 @@ def process_har_file(filename):
 
     try:
         df_tweets = pd.DataFrame(list(tweets.values()))
-        if df_tweets.empty: df_tweets = pd.DataFrame(columns=TWEET_HEADER)
+        if df_tweets.empty: 
+            df_tweets = pd.DataFrame(columns=TWEET_HEADER)
         else:
+            # Ensure columns exist
             for col in TWEET_HEADER:
                 if col not in df_tweets.columns: df_tweets[col] = None
             df_tweets = df_tweets[TWEET_HEADER]
-        df_tweets.to_csv(os.path.join(UPLOAD_PATH, t_csv), index=False)
+            
+        # Force string type for IDs to prevent Excel scientific notation conversion
+        for col in ['tweet_id', 'user_id', 'in_reply_to_tweet', 'quoted_tweet_id']:
+            if col in df_tweets.columns:
+                df_tweets[col] = df_tweets[col].astype(str).replace('nan', '')
+
+        df_tweets.to_csv(os.path.join(UPLOAD_PATH, t_csv), index=False, quoting=csv.QUOTE_ALL)
 
         df_users = pd.DataFrame(list(users_db.values()))
-        if df_users.empty: df_users = pd.DataFrame(columns=USER_HEADER)
+        if df_users.empty: 
+            df_users = pd.DataFrame(columns=USER_HEADER)
         else:
              for col in USER_HEADER:
                 if col not in df_users.columns: df_users[col] = None
              df_users = df_users[USER_HEADER]
-        df_users.to_csv(os.path.join(UPLOAD_PATH, u_csv), index=False)
+             
+        # Force string for User IDs
+        if 'user_id' in df_users.columns:
+             df_users['user_id'] = df_users['user_id'].astype(str).replace('nan', '')
+
+        df_users.to_csv(os.path.join(UPLOAD_PATH, u_csv), index=False, quoting=csv.QUOTE_ALL)
     except Exception as e:
         return {"error": str(e)}, 500
 
