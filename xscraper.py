@@ -267,6 +267,12 @@ def process_har_file(filename):
                                     
                                     links_str = " ".join(links_list) if links_list else None
                                     expanded_str = " ".join(expanded_list) if expanded_list else None
+                                    
+                                    # --- USER MENTIONS LOGIC (FIXED) ---
+                                    # Extract screen names from the user_mentions list
+                                    mentions_objects = entities.get('user_mentions', [])
+                                    mentions_list = [m.get('screen_name') for m in mentions_objects if m.get('screen_name')]
+                                    mentions_str = " ".join(mentions_list) if mentions_list else None
 
                                     t_rec.update({
                                         'index_on_page': index_counter,
@@ -299,6 +305,7 @@ def process_har_file(filename):
                                         'has_link': has_link_flag,
                                         'links': links_str,
                                         'expanded_links': expanded_str,
+                                        'user_mentions': mentions_str, # Fixed Mapping
 
                                         'retweets': leg_t.get('retweet_count', 0),
                                         'favorites': leg_t.get('favorite_count', 0),
@@ -309,7 +316,7 @@ def process_har_file(filename):
                                         'tweet_permalink_path': f"https://x.com/{u_data.get('user_screen_name')}/status/{t_id}"
                                     })
                                     
-                                    # MEDIA LOGIC (Updated to check extended_entities first)
+                                    # MEDIA LOGIC
                                     media_source = leg_t.get('extended_entities') or leg_t.get('entities') or {}
                                     media_list = media_source.get('media', [])
 
