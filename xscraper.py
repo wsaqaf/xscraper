@@ -244,7 +244,8 @@ def process_har_file(filename):
 
                                     # DATE LOGIC
                                     full_date = format_x_date(leg_t.get('created_at'))
-                                    short_date = full_date.split(' ')[0] if full_date else None
+                                    # Modified to append " 00:00:00" as requested
+                                    short_date = f"{full_date.split(' ')[0]} 00:00:00" if full_date else None
 
                                     # HASHTAG LOGIC (REGEX)
                                     raw_text = leg_t.get('full_text', '')
@@ -268,8 +269,7 @@ def process_har_file(filename):
                                     links_str = " ".join(links_list) if links_list else None
                                     expanded_str = " ".join(expanded_list) if expanded_list else None
                                     
-                                    # --- USER MENTIONS LOGIC (FIXED) ---
-                                    # Extract screen names from the user_mentions list
+                                    # --- USER MENTIONS LOGIC ---
                                     mentions_objects = entities.get('user_mentions', [])
                                     mentions_list = [m.get('screen_name') for m in mentions_objects if m.get('screen_name')]
                                     mentions_str = " ".join(mentions_list) if mentions_list else None
@@ -305,7 +305,7 @@ def process_har_file(filename):
                                         'has_link': has_link_flag,
                                         'links': links_str,
                                         'expanded_links': expanded_str,
-                                        'user_mentions': mentions_str, # Fixed Mapping
+                                        'user_mentions': mentions_str,
 
                                         'retweets': leg_t.get('retweet_count', 0),
                                         'favorites': leg_t.get('favorite_count', 0),
@@ -331,7 +331,6 @@ def process_har_file(filename):
 
                                         v_views = 0
                                         for m in media_list:
-                                            # Check mediaStats -> viewCount
                                             if 'mediaStats' in m and 'viewCount' in m['mediaStats']:
                                                 v_views += m['mediaStats']['viewCount']
                                         
@@ -359,7 +358,6 @@ def process_har_file(filename):
                 if col not in df_tweets.columns: df_tweets[col] = None
             df_tweets = df_tweets[TWEET_HEADER]
         
-        # Force string for IDs
         if 'tweet_id' in df_tweets.columns:
              df_tweets['tweet_id'] = df_tweets['tweet_id'].astype(str).replace('nan', '')
         if 'user_id' in df_tweets.columns:
