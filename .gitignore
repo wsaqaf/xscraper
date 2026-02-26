@@ -1,0 +1,7 @@
+/.DS_Store
+/*.zip
+
+# Ignore everything in the UPLOAD_FOLDER
+UPLOAD_FOLDER/*
+# Except for the .keep file so the directory is tracked
+!UPLOAD_FOLDER/.keep
