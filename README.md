@@ -53,3 +53,7 @@ This script strictly mimics passive reading metrics for academic and research co
 
 ## License
 MIT License. Feel free to clone or modify the engine paths according to your schema needs!
+
+## Author
+**Dr. Walid Al-Saqaf**  
+Email: walid[@]al-saqaf.se

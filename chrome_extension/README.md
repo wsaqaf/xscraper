@@ -51,3 +51,7 @@ As this is currently an unpacked local extension, you need to sideload it onto C
 ## Credits & License
 
 Ported natively from [wsaqaf/xscraper](https://github.com/wsaqaf/xscraper) PHP backend to Vanilla JS for browser implementation. 
+
+## Author
+**Dr. Walid Al-Saqaf**  
+Email: walid[@]al-saqaf.se
