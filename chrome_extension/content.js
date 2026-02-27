@@ -109,16 +109,20 @@ function showOverlay(tweetsCSV, usersCSV, tweetCount, userCount, baseName = 'x')
     document.body.appendChild(overlay);
 
     const downloadCsv = (filename, content) => {
-        const blob = new Blob([content], { type: 'text/csv' });
+        const contentWithBOM = "\uFEFF" + content;
+        const blob = new Blob([contentWithBOM], { type: 'application/octet-stream' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
         a.download = filename;
         a.style.display = 'none';
+        a.addEventListener('click', (e) => e.stopPropagation());
         document.body.appendChild(a);
         a.click();
-        URL.revokeObjectURL(url);
-        a.remove();
+        setTimeout(() => {
+            URL.revokeObjectURL(url);
+            a.remove();
+        }, 1000);
     };
 
     document.getElementById('xs-dl-tweets').onclick = () => downloadCsv(`${baseName}_tweets_${Date.now()}.csv`, tweetsCSV);

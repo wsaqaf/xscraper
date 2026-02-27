@@ -1,3 +1,32 @@
+// Check if already scraping on load
+chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+    if (tab && (tab.url.includes('x.com') || tab.url.includes('twitter.com'))) {
+        chrome.tabs.sendMessage(tab.id, { action: 'getProgress' }, (res) => {
+            if (res && res.isScraping) {
+                document.getElementById('controls').classList.add('hidden');
+                document.getElementById('status').classList.remove('hidden');
+                document.getElementById('progressText').innerText = `\nScrolls left: ${res.scrollsLeft}`;
+                startProgressChecker(tab.id);
+            }
+        });
+    }
+});
+
+let checkProgress;
+
+function startProgressChecker(tabId) {
+    if (checkProgress) clearInterval(checkProgress);
+    checkProgress = setInterval(() => {
+        chrome.tabs.sendMessage(tabId, { action: 'getProgress' }, (res) => {
+            if (res && res.isScraping) {
+                document.getElementById('progressText').innerText = `\nScrolls left: ${res.scrollsLeft}`;
+            } else {
+                clearInterval(checkProgress);
+            }
+        });
+    }, 1000);
+}
+
 document.getElementById('startBtn').addEventListener('click', async () => {
     const pages = document.getElementById('pages').value;
 
@@ -23,7 +52,8 @@ document.getElementById('startBtn').addEventListener('click', async () => {
             // Wait, creating download link inside popup via chrome.downloads is safer but popup may not have downloads permissions unless added.
             // Using a simple HTML5 download attribute object URL link handles it without needing special permissions
             const downloadLink = (content, filename) => {
-                const blob = new Blob([content], { type: 'text/csv' });
+                const contentWithBOM = "\uFEFF" + content;
+                const blob = new Blob([contentWithBOM], { type: 'application/octet-stream' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.style.display = 'none';
@@ -31,8 +61,10 @@ document.getElementById('startBtn').addEventListener('click', async () => {
                 a.download = filename;
                 document.body.appendChild(a);
                 a.click();
-                URL.revokeObjectURL(url);
-                a.remove();
+                setTimeout(() => {
+                    URL.revokeObjectURL(url);
+                    a.remove();
+                }, 1000);
             };
 
             document.getElementById('dlTweets').onclick = () => {
@@ -47,14 +79,7 @@ document.getElementById('startBtn').addEventListener('click', async () => {
         }
     });
 
-    // Optionally listen to progress
-    const checkProgress = setInterval(() => {
-        chrome.tabs.sendMessage(tab.id, { action: 'getProgress' }, (res) => {
-            if (res && res.isScraping) {
-                document.getElementById('progressText').innerText = `\nScrolls left: ${res.scrollsLeft}`;
-            } else {
-                clearInterval(checkProgress);
-            }
-        });
-    }, 1000);
+    // Wait for startScraping response handler loop
+    // But since startScraping takes a while, we also poll progress independently
+    startProgressChecker(tab.id);
 });

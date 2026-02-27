@@ -5,7 +5,8 @@
     "description": "Scrape tweets and users from X by scrolling",
     "permissions": [
         "activeTab",
-        "scripting"
+        "scripting",
+        "downloads"
     ],
     "host_permissions": [
         "*://*.x.com/*",
