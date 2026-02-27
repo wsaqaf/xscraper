@@ -69,6 +69,14 @@
         <label>Pages to scroll:</label>
         <input type="number" id="pages" value="5" min="1" max="1000"
             style="width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #ccc; border-radius: 4px;">
+
+        <div style="margin-top: 10px; font-size: 13px;">
+            <label style="font-weight: normal; cursor: pointer;">
+                <input type="checkbox" id="refreshPage" checked>
+                Refresh page before scraping (Recommended to capture initial tweets)
+            </label>
+        </div>
+
         <button id="startBtn" class="btn">Start Scraping</button>
         <p style="font-size: 12px; color: gray; margin-top: 10px;">Keep this popup open until scraping finishes, or wait
             for the overlay on the bottom right of the page.</p>
@@ -76,6 +84,7 @@
 
     <div id="status" class="hidden status-msg">
         <p>Scraping in progress... <span id="progressText"></span></p>
+        <p id="liveStatsText" style="font-size: 14px; font-weight: bold; color: #1DA1F2; margin: 10px 0;"></p>
         <p style="font-size: 12px; color: gray;">Please wait while the page scrolls automatically.</p>
     </div>
 

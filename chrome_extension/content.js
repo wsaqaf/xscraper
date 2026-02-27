@@ -11,6 +11,7 @@ let collectedData = [];
 let isScraping = false;
 let scrollsLeft = 0;
 let lastResult = null;
+let engine = null;
 
 // Listen for intercepted JSON data
 window.addEventListener('message', function (event) {
@@ -18,6 +19,10 @@ window.addEventListener('message', function (event) {
     try {
         const parsed = JSON.parse(event.data.text);
         collectedData.push(parsed);
+        // Process on the fly if we are actively scraping
+        if (isScraping && engine) {
+            engine.processData([parsed]);
+        }
     } catch (e) { }
 });
 
@@ -25,23 +30,31 @@ window.addEventListener('message', function (event) {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'startScraping') {
         if (!isScraping) {
-            startScraping(request.pages, sendResponse);
+            startScraping(request.pages, sendResponse, request.clearData !== false);
             return true; // Keep message channel open for async response
         } else {
             sendResponse({ status: 'error', message: 'Already scraping' });
         }
     } else if (request.action === 'getProgress') {
-        sendResponse({ isScraping, scrollsLeft, count: collectedData.length, lastResult });
+        const tweetCount = engine ? Object.keys(engine.tweets).length : 0;
+        const userCount = engine ? Object.keys(engine.usersDb).length : 0;
+        sendResponse({ isScraping, scrollsLeft, count: collectedData.length, tweetCount, userCount, lastResult });
     }
 });
 
-async function startScraping(pages, sendResponse) {
+async function startScraping(pages, sendResponse, clearData = true) {
     isScraping = true;
     scrollsLeft = pages;
 
     // Clear previously collected data to avoid duplicates from old scrolls
     // (We might want to keep the initial page load data, but clearing makes it predictable)
-    collectedData = [];
+    if (clearData) {
+        collectedData = [];
+        engine = new XScraperEngine();
+    } else if (!engine) {
+        engine = new XScraperEngine();
+        engine.processData(collectedData);
+    }
 
     // Adding initial scroll jump just in case they are already down the page
     for (let i = 0; i < pages; i++) {
@@ -53,9 +66,7 @@ async function startScraping(pages, sendResponse) {
 
     isScraping = false;
 
-    // Process the collected JSON payloads
-    const engine = new XScraperEngine();
-    engine.processData(collectedData);
+    // Generate results
     const result = engine.convertToCSV();
 
     const baseName = getBaseNameFromUrl();
@@ -67,7 +78,9 @@ async function startScraping(pages, sendResponse) {
 
     showOverlay(result.tweetsCSV, result.usersCSV, result.tweetCount, result.userCount, baseName, result.timestamp);
 
-    sendResponse({ status: 'done', result });
+    if (typeof sendResponse === 'function') {
+        sendResponse({ status: 'done', result });
+    }
 }
 
 function getBaseNameFromUrl() {
@@ -409,3 +422,14 @@ class XScraperEngine {
         return { tweetsCSV, usersCSV, tweetCount: tweetsArr.length, userCount: usersArr.length };
     }
 }
+
+// Check for auto-scrape instructions after a requested reload
+chrome.storage.local.get(['autoScrapePages'], (res) => {
+    if (res.autoScrapePages) {
+        chrome.storage.local.remove('autoScrapePages');
+        // Wait 3.5 seconds to allow initial tweets to load from the network
+        setTimeout(() => {
+            startScraping(res.autoScrapePages, null, false);
+        }, 3500);
+    }
+});
