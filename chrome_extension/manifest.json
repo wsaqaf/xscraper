@@ -1,6 +1,6 @@
 {
     "manifest_version": 3,
-    "name": "X Scraper Extension",
+    "name": "XScraper",
     "version": "1.0",
     "description": "Scrape tweets and users from X by scrolling",
     "permissions": [

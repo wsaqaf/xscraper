@@ -7,6 +7,8 @@ chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
                 document.getElementById('status').classList.remove('hidden');
                 document.getElementById('progressText').innerText = `\nScrolls left: ${res.scrollsLeft}`;
                 startProgressChecker(tab.id);
+            } else if (res && res.lastResult) {
+                showResults(res.lastResult, true);
             }
         });
     }
@@ -27,6 +29,48 @@ function startProgressChecker(tabId) {
     }, 1000);
 }
 
+function showResults(result, isPrevious = false) {
+    document.getElementById('status').classList.add('hidden');
+    document.getElementById('results').classList.remove('hidden');
+    document.getElementById('controls').classList.remove('hidden');
+
+    if (isPrevious) {
+        document.getElementById('resultsTitle').innerText = "Previous Results:";
+    } else {
+        document.getElementById('resultsTitle').innerText = "Scraping Complete!";
+    }
+
+    document.getElementById('stats').innerText = `${result.tweetCount} tweets, ${result.userCount} users.`;
+
+    const downloadLink = (content, filename) => {
+        const contentWithBOM = "\uFEFF" + content;
+        const blob = new Blob([contentWithBOM], { type: 'application/octet-stream' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+            URL.revokeObjectURL(url);
+            a.remove();
+        }, 1000);
+    };
+
+    document.getElementById('dlTweets').onclick = () => {
+        const baseName = result.baseName || 'x';
+        const ts = result.timestamp || Date.now();
+        downloadLink(result.tweetsCSV, `${baseName}_tweets_${ts}.csv`);
+    };
+
+    document.getElementById('dlUsers').onclick = () => {
+        const baseName = result.baseName || 'x';
+        const ts = result.timestamp || Date.now();
+        downloadLink(result.usersCSV, `${baseName}_users_${ts}.csv`);
+    };
+}
+
 document.getElementById('startBtn').addEventListener('click', async () => {
     const pages = document.getElementById('pages').value;
 
@@ -38,6 +82,7 @@ document.getElementById('startBtn').addEventListener('click', async () => {
 
     document.getElementById('controls').classList.add('hidden');
     document.getElementById('status').classList.remove('hidden');
+    document.getElementById('results').classList.add('hidden');
 
     chrome.tabs.sendMessage(tab.id, { action: 'startScraping', pages: parseInt(pages) }, (response) => {
         if (!response) {
@@ -45,37 +90,7 @@ document.getElementById('startBtn').addEventListener('click', async () => {
             return;
         }
         if (response.status === 'done') {
-            document.getElementById('status').classList.add('hidden');
-            document.getElementById('results').classList.remove('hidden');
-            document.getElementById('stats').innerText = `${response.result.tweetCount} tweets, ${response.result.userCount} users.`;
-
-            // Wait, creating download link inside popup via chrome.downloads is safer but popup may not have downloads permissions unless added.
-            // Using a simple HTML5 download attribute object URL link handles it without needing special permissions
-            const downloadLink = (content, filename) => {
-                const contentWithBOM = "\uFEFF" + content;
-                const blob = new Blob([contentWithBOM], { type: 'application/octet-stream' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.style.display = 'none';
-                a.href = url;
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                setTimeout(() => {
-                    URL.revokeObjectURL(url);
-                    a.remove();
-                }, 1000);
-            };
-
-            document.getElementById('dlTweets').onclick = () => {
-                const baseName = response.result.baseName || 'x';
-                downloadLink(response.result.tweetsCSV, `${baseName}_tweets_${Date.now()}.csv`);
-            };
-
-            document.getElementById('dlUsers').onclick = () => {
-                const baseName = response.result.baseName || 'x';
-                downloadLink(response.result.usersCSV, `${baseName}_users_${Date.now()}.csv`);
-            };
+            showResults(response.result, false);
         }
     });
 

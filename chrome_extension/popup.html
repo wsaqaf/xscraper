@@ -1,42 +1,92 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <meta charset="utf-8">
     <title>X Scraper</title>
     <style>
-        body { width: 300px; padding: 15px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; color: #333; }
-        .hidden { display: none !important; }
-        .btn { padding: 8px 12px; background: #1DA1F2; color: white; border: none; border-radius: 4px; cursor: pointer; width: 100%; margin-top: 10px; font-size: 14px; font-weight: bold; }
-        .btn:hover { background: #1a91da; }
-        .dl-btn { background: #17bf63; }
-        .dl-btn:hover { background: #15ab58; }
-        h3 { margin-top: 0; }
-        label { font-size: 14px; font-weight: bold; }
-        input { box-sizing: border-box; }
-        .status-msg { margin-top: 15px; font-size: 14px; color: #555; text-align: center; }
+        body {
+            width: 300px;
+            padding: 15px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+            color: #333;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .btn {
+            padding: 8px 12px;
+            background: #1DA1F2;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 10px;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .btn:hover {
+            background: #1a91da;
+        }
+
+        .dl-btn {
+            background: #17bf63;
+        }
+
+        .dl-btn:hover {
+            background: #15ab58;
+        }
+
+        h3 {
+            margin-top: 0;
+        }
+
+        label {
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        input {
+            box-sizing: border-box;
+        }
+
+        .status-msg {
+            margin-top: 15px;
+            font-size: 14px;
+            color: #555;
+            text-align: center;
+        }
     </style>
 </head>
+
 <body>
     <h3>X / Twitter Scraper</h3>
     <div id="controls">
         <label>Pages to scroll:</label>
-        <input type="number" id="pages" value="5" min="1" max="1000" style="width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #ccc; border-radius: 4px;">
+        <input type="number" id="pages" value="5" min="1" max="1000"
+            style="width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #ccc; border-radius: 4px;">
         <button id="startBtn" class="btn">Start Scraping</button>
-        <p style="font-size: 12px; color: gray; margin-top: 10px;">Keep this popup open until scraping finishes, or wait for the overlay on the bottom right of the page.</p>
+        <p style="font-size: 12px; color: gray; margin-top: 10px;">Keep this popup open until scraping finishes, or wait
+            for the overlay on the bottom right of the page.</p>
     </div>
-    
+
     <div id="status" class="hidden status-msg">
         <p>Scraping in progress... <span id="progressText"></span></p>
         <p style="font-size: 12px; color: gray;">Please wait while the page scrolls automatically.</p>
     </div>
-    
+
     <div id="results" class="hidden status-msg">
-        <p style="font-weight: bold; color: #17bf63;">Scraping Complete!</p>
+        <p id="resultsTitle" style="font-weight: bold; color: #17bf63;">Scraping Complete!</p>
         <p><span id="stats"></span></p>
         <button id="dlTweets" class="btn dl-btn">Download Tweets CSV</button>
         <button id="dlUsers" class="btn dl-btn">Download Users CSV</button>
     </div>
-    
+
     <script src="popup.js"></script>
 </body>
+
 </html>

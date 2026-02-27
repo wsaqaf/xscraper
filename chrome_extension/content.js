@@ -10,6 +10,7 @@ script.onload = function () {
 let collectedData = [];
 let isScraping = false;
 let scrollsLeft = 0;
+let lastResult = null;
 
 // Listen for intercepted JSON data
 window.addEventListener('message', function (event) {
@@ -30,7 +31,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             sendResponse({ status: 'error', message: 'Already scraping' });
         }
     } else if (request.action === 'getProgress') {
-        sendResponse({ isScraping, scrollsLeft, count: collectedData.length });
+        sendResponse({ isScraping, scrollsLeft, count: collectedData.length, lastResult });
     }
 });
 
@@ -59,8 +60,12 @@ async function startScraping(pages, sendResponse) {
 
     const baseName = getBaseNameFromUrl();
     result.baseName = baseName;
+    result.timestamp = Date.now();
 
-    showOverlay(result.tweetsCSV, result.usersCSV, result.tweetCount, result.userCount, baseName);
+    // Store globally so the popup can retrieve it if reopened
+    lastResult = result;
+
+    showOverlay(result.tweetsCSV, result.usersCSV, result.tweetCount, result.userCount, baseName, result.timestamp);
 
     sendResponse({ status: 'done', result });
 }
@@ -84,7 +89,7 @@ function getBaseNameFromUrl() {
     return 'x';
 }
 
-function showOverlay(tweetsCSV, usersCSV, tweetCount, userCount, baseName = 'x') {
+function showOverlay(tweetsCSV, usersCSV, tweetCount, userCount, baseName = 'x', timestamp = Date.now()) {
     let overlay = document.getElementById('xscraper-overlay');
     if (overlay) overlay.remove();
 
@@ -125,8 +130,8 @@ function showOverlay(tweetsCSV, usersCSV, tweetCount, userCount, baseName = 'x')
         }, 1000);
     };
 
-    document.getElementById('xs-dl-tweets').onclick = () => downloadCsv(`${baseName}_tweets_${Date.now()}.csv`, tweetsCSV);
-    document.getElementById('xs-dl-users').onclick = () => downloadCsv(`${baseName}_users_${Date.now()}.csv`, usersCSV);
+    document.getElementById('xs-dl-tweets').onclick = () => downloadCsv(`${baseName}_tweets_${timestamp}.csv`, tweetsCSV);
+    document.getElementById('xs-dl-users').onclick = () => downloadCsv(`${baseName}_users_${timestamp}.csv`, usersCSV);
     document.getElementById('xs-close').onclick = () => overlay.remove();
 }
 
