@@ -15,6 +15,7 @@ let engine = null;
 let shouldStopScraping = false;
 let isWaiting = false;
 let waitSecondsLeft = 0;
+let isOverrideRequested = false;
 
 // Listen for intercepted JSON data
 window.addEventListener('message', function (event) {
@@ -58,9 +59,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         shouldStopScraping = true;
         sendResponse({ status: 'stopping' });
     } else if (request.action === 'resumeScraping') {
-        clickRetryIfPresent();
-        waitSecondsLeft = 0;
-        isWaiting = false;
+        isOverrideRequested = true;
         sendResponse({ status: 'resuming' });
     }
 });
@@ -116,9 +115,25 @@ async function startScraping(pages, sendResponse, clearData = true) {
             // Check again
             if (findRetryButton()) {
                 console.log("X Scraper: Retry persistent. Likely rate limited. Waiting 15 minutes...");
-                await waitWithCountdown(15 * 60); // 15 minutes
+                await waitWithCountdown(15 * 60);
+
+                // If we exited wait because of an override request, check if it worked
+                while (isOverrideRequested && !shouldStopScraping) {
+                    isOverrideRequested = false;
+                    clickRetryIfPresent();
+                    // Wait a bit to see if content loads
+                    await new Promise(resolve => setTimeout(resolve, 4000));
+
+                    if (findRetryButton() && waitSecondsLeft > 0) {
+                        console.log(`X Scraper: Manual override failed. Resuming wait (${Math.floor(waitSecondsLeft / 60)}m left)...`);
+                        await waitWithCountdown(waitSecondsLeft);
+                    } else {
+                        // Either it worked, or timer naturally finished
+                        break;
+                    }
+                }
+
                 if (shouldStopScraping) break;
-                // Try clicking one more time after waiting
                 clickRetryIfPresent();
                 await new Promise(resolve => setTimeout(resolve, 2000));
             }
@@ -150,6 +165,7 @@ async function startScraping(pages, sendResponse, clearData = true) {
     isScraping = false;
     isWaiting = false;
     waitSecondsLeft = 0;
+    isOverrideRequested = false;
 
     // Generate results
     const result = engine.convertToCSV();
@@ -171,12 +187,11 @@ async function startScraping(pages, sendResponse, clearData = true) {
 async function waitWithCountdown(seconds) {
     isWaiting = true;
     waitSecondsLeft = seconds;
-    while (waitSecondsLeft > 0 && !shouldStopScraping) {
+    while (waitSecondsLeft > 0 && !shouldStopScraping && !isOverrideRequested) {
         await new Promise(res => setTimeout(res, 1000));
         waitSecondsLeft--;
     }
     isWaiting = false;
-    waitSecondsLeft = 0;
 }
 
 function getBaseNameFromUrl() {
