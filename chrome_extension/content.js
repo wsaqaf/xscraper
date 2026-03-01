@@ -41,6 +41,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     } else if (request.action === 'getProgress') {
         const tweetCount = engine ? Object.keys(engine.tweets).length : 0;
         const userCount = engine ? Object.keys(engine.usersDb).length : 0;
+        const isRetryVisible = !!findRetryButton();
         sendResponse({
             isScraping,
             isStopping: shouldStopScraping,
@@ -50,17 +51,35 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             userCount,
             lastResult,
             isWaiting,
-            waitSecondsLeft
+            waitSecondsLeft,
+            isRetryVisible
         });
     } else if (request.action === 'stopScraping') {
         shouldStopScraping = true;
         sendResponse({ status: 'stopping' });
     } else if (request.action === 'resumeScraping') {
+        clickRetryIfPresent();
         waitSecondsLeft = 0;
         isWaiting = false;
         sendResponse({ status: 'resuming' });
     }
 });
+
+function findRetryButton() {
+    // Look through all elements to find text "Retry" - sometimes it's in a div or span
+    return Array.from(document.querySelectorAll('span, div, button, [role="button"]'))
+        .find(el => el.childNodes.length === 1 && el.textContent.trim() === 'Retry');
+}
+
+function clickRetryIfPresent() {
+    const btn = findRetryButton();
+    if (btn) {
+        console.log("X Scraper: Found Retry button. Clicking...");
+        btn.click();
+        return true;
+    }
+    return false;
+}
 
 async function startScraping(pages, sendResponse, clearData = true) {
     shouldStopScraping = false;
@@ -89,26 +108,19 @@ async function startScraping(pages, sendResponse, clearData = true) {
         const currentHeight = document.body.scrollHeight;
 
         // 1. Check for Retry Button (Error handling)
-        const retrySpan = Array.from(document.querySelectorAll('span'))
-            .find(s => s.textContent.trim() === 'Retry');
-
-        if (retrySpan) {
-            console.log("X Scraper: Retry button detected. Clicking...");
-            retrySpan.click();
+        if (findRetryButton()) {
+            clickRetryIfPresent();
             // Short wait to see if it resolves
             await new Promise(resolve => setTimeout(resolve, 3000));
 
             // Check again
-            const retrySpanSubsequent = Array.from(document.querySelectorAll('span'))
-                .find(s => s.textContent.trim() === 'Retry');
-            if (retrySpanSubsequent) {
+            if (findRetryButton()) {
                 console.log("X Scraper: Retry persistent. Likely rate limited. Waiting 15 minutes...");
                 await waitWithCountdown(15 * 60); // 15 minutes
                 if (shouldStopScraping) break;
                 // Try clicking one more time after waiting
-                const finalRetry = Array.from(document.querySelectorAll('span'))
-                    .find(s => s.textContent.trim() === 'Retry');
-                if (finalRetry) finalRetry.click();
+                clickRetryIfPresent();
+                await new Promise(resolve => setTimeout(resolve, 2000));
             }
         }
 
