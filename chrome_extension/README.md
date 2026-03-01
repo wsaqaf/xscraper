@@ -8,11 +8,12 @@ Unlike traditional methods that require downloading and parsing HAR files offlin
 - **Live Network Interception:** Runs passively in the background of your active X tab, capturing `TimelineAddEntries` blocks continuously.
 - **Real-time Progress Tracking:** See live counts of how many unique tweets and users have been scraped so far directly in the extension popup while it scrolls.
 - **Set Your Scrolling Speed:** Input exactly how many pages you want to retrieve. The extension autonomously scrolls to the bottom of the feed at timed increments (2.5 seconds) allowing lazy-loading elements to yield fully populated JSON trees.
-- **Smart Naming Convention:** Identifies if you are on a profile (e.g., `/userx`) or searching (via `?q=testing...`), dynamically naming your resulting CSVs `userx_tweets...` or `testing_tweets...` to automatically sort your data collections.
+- **Smart Naming Convention:** Identifies if you are on a profile (e.g., `/userx`) or searching (via `?q=testing...`), dynamically naming your resulting files `userx_tweets...`, `userx_data...`, etc., to automatically sort your data collections.
 - **In-Memory Transformation:** Extracts more than 60 data columns cleanly avoiding external backend servers, completely isolating operations for security.
-- **1-Click Generation:** Auto-constructs and pushes two discrete CSV downloads directly from your browser: 
+- **1-Click Generation:** Auto-constructs and pushes three discrete downloads directly from your browser: 
   - `tweets.csv` (contains raw texts, interactions, user mappings, hashtags, quote identifiers, and verified status)
   - `users.csv` (contains comprehensive account metrics like lists, followers, image URLs, and account creation dates)
+  - `data.json` (a unified JSON object containing all scraped tweet and user objects)
 
 ## Installation Guide (For Development/Unpacked Mode)
 
@@ -42,7 +43,7 @@ As this is currently an unpacked local extension, you need to sideload it onto C
 5. Click **Start Scraping**.
 6. The extension will begin to automatically jump down the page, waiting a few seconds on each chunk for data to register. *Please do not navigate away or close the tab while this runs.*
 7. Once finished, a small overlay widget will appear in the bottom-left corner of the webpage alongside an updated pop-up summarizing the data.
-8. Click **Download Tweets** and/or **Download Users** to obtain your cleanly formatted CSV datasets natively to your computer.
+8. Click **Download Tweets**, **Download Users**, and/or **Download JSON** to obtain your cleanly formatted datasets natively to your computer.
 
 ## Known Limitations / Troubleshooting
 

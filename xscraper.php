@@ -27,7 +27,7 @@ class XScraperEngine
         'replies', 'source', 'mentions_of_tweeter', 'context_annotations',
         'possibly_sensitive', 'conversation_id', 'withheld_copyright',
         'withheld_in_countries', 'withheld_scope', 'is_protected_or_deleted',
-        'retweeter_api_cursor', 'views', 'blue_verified', 'video_views'
+        'retweeter_api_cursor', 'views', 'blue_verified', 'video_views', 'user_geo_enabled'
     ];
 
     private $userHeader = [
@@ -61,13 +61,27 @@ class XScraperEngine
         return $rec;
     }
 
-    private function formatXDate($dateStr)
+    private function formatXDate($dateStr, $onlyDate = false)
     {
         if (!$dateStr)
             return null;
         try {
+            // Check if it's already in Y-m-d format
+            if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateStr)) {
+                return $dateStr;
+            }
+            if (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', $dateStr)) {
+                return $onlyDate ? explode(' ', $dateStr)[0] : $dateStr;
+            }
+
             $date = DateTime::createFromFormat('D M d H:i:s O Y', $dateStr);
-            return $date ? $date->format('Y-m-d H:i:s') : $dateStr;
+            if ($date) {
+                return $onlyDate ? $date->format('Y-m-d') : $date->format('Y-m-d H:i:s');
+            }
+
+            // Fallback for other formats
+            $date = new DateTime($dateStr);
+            return $onlyDate ? $date->format('Y-m-d') : $date->format('Y-m-d H:i:s');
         }
         catch (Exception $e) {
             return $dateStr;
@@ -94,25 +108,69 @@ class XScraperEngine
 
         $img = $legacy['profile_image_url_https'] ?? ($obj['profile_image_url_https'] ?? ($obj['avatar']['image_url'] ?? null));
 
-        if (!isset($this->usersDb[$uId]) || ($img && empty($this->usersDb[$uId]['user_image_url']))) {
-            $rec = $this->initializeRecord("user");
-            $rec['user_id'] = $uId;
-            $rec['user_screen_name'] = $screenName;
-            $rec['user_name'] = $legacy['name'] ?? ($core['name'] ?? null);
-            $rec['user_location'] = $legacy['location'] ?? null;
-            $rec['user_image_url'] = $img;
-            $rec['user_bio'] = $legacy['description'] ?? null;
-            $rec['user_followers'] = $legacy['followers_count'] ?? 0;
-            $rec['user_following'] = $legacy['friends_count'] ?? 0;
-            $rec['user_friends'] = $legacy['friends_count'] ?? 0;
-            $rec['user_lists'] = $legacy['listed_count'] ?? 0;
-            $rec['user_favorites'] = $legacy['favourites_count'] ?? 0;
-            $rec['user_tweets'] = $legacy['statuses_count'] ?? 0;
-            $rec['user_verified'] = (isset($legacy['verified']) && $legacy['verified']) ? 1 : 0;
-            $rec['blue_verified'] = (isset($obj['is_blue_verified']) && $obj['is_blue_verified']) ? 1 : 0;
-            $rec['user_created'] = $this->formatXDate($legacy['created_at'] ?? null);
+        if (!isset($this->usersDb[$uId])) {
+            $this->usersDb[$uId] = $this->initializeRecord("user");
+            $this->usersDb[$uId]['user_id'] = $uId;
+        }
 
-            $this->usersDb[$uId] = $rec;
+        $rec = & $this->usersDb[$uId];
+
+        // Screen Name & Name
+        if (!$rec['user_screen_name'])
+            $rec['user_screen_name'] = $screenName;
+        if (!$rec['user_name'])
+            $rec['user_name'] = $legacy['name'] ?? ($core['name'] ?? null);
+
+        // Location & Bio
+        $loc = $legacy['location'] ?? ($obj['location'] ?? ($core['location'] ?? null));
+        if (is_array($loc) && isset($loc['location']))
+            $loc = $loc['location'];
+        if ($loc !== null && $loc !== "" && !is_array($loc)) {
+            $rec['user_location'] = (string)$loc;
+        }
+        if (empty($rec['user_bio']))
+            $rec['user_bio'] = $legacy['description'] ?? null;
+
+        // Image
+        if ($img && empty($rec['user_image_url']))
+            $rec['user_image_url'] = $img;
+
+        // Stats
+        if (!empty($legacy['followers_count']))
+            $rec['user_followers'] = $legacy['followers_count'];
+        if (!empty($legacy['friends_count'])) {
+            $rec['user_following'] = $legacy['friends_count'];
+            $rec['user_friends'] = $legacy['friends_count'];
+        }
+        if (!empty($legacy['listed_count']))
+            $rec['user_lists'] = $legacy['listed_count'];
+        if (!empty($legacy['favourites_count']))
+            $rec['user_favorites'] = $legacy['favourites_count'];
+        if (!empty($legacy['statuses_count']))
+            $rec['user_tweets'] = $legacy['statuses_count'];
+
+        // Flags
+        $verObj = $obj['verification'] ?? ($core['verification'] ?? []);
+        $isVer = !empty($legacy['verified']) || !empty($verObj['verified']) || (!empty($verObj['verified_type']) && $verObj['verified_type'] !== 'Blue');
+        if ($isVer)
+
+            $rec['user_verified'] = 1;
+
+        if (!empty($obj['is_blue_verified']) || !empty($core['is_blue_verified']))
+            $rec['blue_verified'] = 1;
+
+        if (!empty($legacy['geo_enabled']))
+            $rec['user_geo_enabled'] = 1;
+
+        // Date Created
+        if (empty($rec['user_created'])) {
+            $rec['user_created'] = $this->formatXDate($legacy['created_at'] ?? ($obj['created_at'] ?? ($core['created_at'] ?? null)), true);
+        }
+
+        // URL
+        if (empty($rec['user_url'])) {
+            $urlData = $legacy['entities']['url']['urls'][0] ?? null;
+            $rec['user_url'] = $urlData['expanded_url'] ?? ($legacy['url'] ?? null);
         }
     }
 
@@ -138,8 +196,12 @@ class XScraperEngine
         // Phase 1: Mine Users
         if (isset($content['log']['entries'])) {
             foreach ($content['log']['entries'] as $entry) {
-                $respText = $entry['response']['content']['text'] ?? null;
+                $resp = $entry['response']['content'] ?? null;
+                $respText = $resp['text'] ?? null;
                 if ($respText) {
+                    if (($resp['encoding'] ?? '') === 'base64') {
+                        $respText = base64_decode($respText);
+                    }
                     $data = json_decode($respText, true);
                     if ($data)
                         $this->recursiveSignatureScan($data);
@@ -152,9 +214,14 @@ class XScraperEngine
             foreach ($content['log']['entries'] as $entry) {
                 $url = $entry['request']['url'] ?? '';
                 if (preg_match('/(\/graphql\/|SearchTimeline|UserTweets)/', $url)) {
-                    $respText = $entry['response']['content']['text'] ?? null;
+                    $resp = $entry['response']['content'] ?? [];
+                    $respText = $resp['text'] ?? null;
                     if (!$respText)
-                        continue; // Skip if no content
+                        continue;
+
+                    if (($resp['encoding'] ?? '') === 'base64') {
+                        $respText = base64_decode($respText);
+                    }
 
                     $data = json_decode($respText, true);
                     if (!$data)
@@ -242,6 +309,7 @@ class XScraperEngine
                                         'user_bio' => $uData['user_bio'] ?? null,
                                         'user_verified' => $uData['user_verified'] ?? 0,
                                         'blue_verified' => $uData['blue_verified'] ?? 0,
+                                        'user_geo_enabled' => $uData['user_geo_enabled'] ?? 0,
                                         'raw_text' => $rawText,
                                         'clear_text' => $this->cleanHtml($rawText),
                                         'date_time' => $fullDate,
@@ -255,6 +323,12 @@ class XScraperEngine
                                         'is_quote' => (!empty($leg['is_quote_status']) || !empty($leg['quoted_status_id_str'])) ? "1" : null,
                                         'quoted_tweet_id' => $leg['quoted_status_id_str'] ?? null,
                                         'hashtags' => !empty($hMatches[1]) ? implode(' ', $hMatches[1]) : null,
+                                        'coordinates_lat' => $leg['geo']['coordinates'][0] ?? null,
+                                        'coordinates_long' => $leg['geo']['coordinates'][1] ?? null,
+                                        'country' => $leg['place']['country'] ?? null,
+                                        'location_fullname' => $leg['place']['full_name'] ?? null,
+                                        'location_name' => $leg['place']['name'] ?? null,
+                                        'location_type' => $leg['place']['place_type'] ?? null,
                                         'has_link' => (!empty($linksList)) ? "1" : null,
                                         'links' => implode(' ', $linksList),
                                         'expanded_links' => implode(' ', $expandedList),
@@ -271,6 +345,16 @@ class XScraperEngine
                                         'video_views' => $vViews > 0 ? $vViews : 0,
                                         'tweet_permalink_path' => "https://x.com/" . ($uData['user_screen_name'] ?? 'i') . "/status/$tId"
                                     ]);
+
+                                    if (!empty($leg['geo']) || !empty($leg['place'])) {
+                                        if (isset($this->usersDb[$uId])) {
+                                            $this->usersDb[$uId]['user_geo_enabled'] = 1;
+                                        }
+                                        if (empty($uData['user_geo_enabled'])) {
+                                            $rec['user_geo_enabled'] = 1;
+                                        }
+                                    }
+
                                     $this->tweets[$tId] = $rec;
                                 }
                             }
@@ -284,13 +368,19 @@ class XScraperEngine
         $postfix = date('Ymd_His');
         $tFile = "{$base}_tweets_{$postfix}.csv";
         $uFile = "{$base}_users_{$postfix}.csv";
+        $jFile = "{$base}_data_{$postfix}.json";
 
         $this->writeCsv($this->uploadPath . $tFile, $this->tweetHeader, $this->tweets);
         $this->writeCsv($this->uploadPath . $uFile, $this->userHeader, $this->usersDb);
+        file_put_contents($this->uploadPath . $jFile, json_encode([
+            'tweets' => array_values($this->tweets),
+            'users' => array_values($this->usersDb)
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
         return [
             'tweets' => $tFile,
             'users' => $uFile,
+            'json' => $jFile,
             'tweet_count' => count($this->tweets),
             'user_count' => count($this->usersDb)
         ];

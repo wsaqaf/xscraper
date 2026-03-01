@@ -25,7 +25,7 @@ You can directly scrape tweets and user accounts dynamically by scrolling down a
 4. Go to x.com (a profile, hashtag, or search query) and click the extension icon.
 5. Enter the number of pages you want to scroll and click **Start**.
 
-The extension will auto-scroll the webpage, fetching the API responses as you go. When complete, an overlay will pop up allowing you to instantly download cleanly formatted `tweets.csv` and `users.csv` files.
+The extension will auto-scroll the webpage, fetching the API responses as you go. When complete, an overlay will pop up allowing you to instantly download cleanly formatted `tweets.csv`, `users.csv`, and a combined `data.json` file.
 *(See `chrome_extension/README.md` for more details).*
 
 ---
@@ -39,14 +39,14 @@ Requires a local web server (like Apache/XAMPP or MAMP on macOS/Ubuntu) running 
 1. Ensure the `xscraper` directory is placed inside your server's root folder (e.g., `htdocs` or `/var/www/html`).
 2. Navigate to `http://localhost/xscraper/index.php`.
 3. Drop a `.har` file exported from Google Chrome into the UI.
-4. The PHP script (`xscraper.php`) will aggressively parse the JSON structures from the HAR entries, creating compiled `.csv` documents natively into the `UPLOAD_FOLDER/` directly on your server.
-5. In the UI, click to instantly view or download the rendered CSV contents.
+4. The PHP script (`xscraper.php`) will aggressively parse the JSON structures from the HAR entries, creating compiled `.csv` and `.json` documents natively into the `UPLOAD_FOLDER/` directly on your server.
+5. In the UI, click to instantly view or download the rendered CSV or JSON contents.
 
 ### PHP Files Overview
 - `xscraper.php` - The core parsing logical engine. Iterates deeply through GraphQL and instruction schemas to build identical data structures.
 - `index.php` - A clean, simple Bootstrap frontend UI for uploading files and checking progress.
 - `view_tweets.php` - A browser-based CSV parsing tool allowing you to rapidly scan your offline data tables.
-- `UPLOAD_FOLDER/` - A protected staging ground where your generated CSV datasets will be natively placed dynamically by PHP. 
+- `UPLOAD_FOLDER/` - A protected staging ground where your generated CSV and JSON datasets will be natively placed dynamically by PHP. 
 
 ## Warning / Fair Use
 This script strictly mimics passive reading metrics for academic and research collection parameters. When using the Chrome Extension, X enforces natural API rate-limiting via scrolling behaviors, so extended infinite scrolls can intermittently be delayed or paused by X. 

@@ -12,6 +12,7 @@ let isScraping = false;
 let scrollsLeft = 0;
 let lastResult = null;
 let engine = null;
+let shouldStopScraping = false;
 
 // Listen for intercepted JSON data
 window.addEventListener('message', function (event) {
@@ -38,11 +39,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     } else if (request.action === 'getProgress') {
         const tweetCount = engine ? Object.keys(engine.tweets).length : 0;
         const userCount = engine ? Object.keys(engine.usersDb).length : 0;
-        sendResponse({ isScraping, scrollsLeft, count: collectedData.length, tweetCount, userCount, lastResult });
+        sendResponse({ isScraping, isStopping: shouldStopScraping, scrollsLeft, count: collectedData.length, tweetCount, userCount, lastResult });
+    } else if (request.action === 'stopScraping') {
+        shouldStopScraping = true;
+        sendResponse({ status: 'stopping' });
     }
 });
 
 async function startScraping(pages, sendResponse, clearData = true) {
+    shouldStopScraping = false;
     isScraping = true;
     scrollsLeft = pages;
 
@@ -58,12 +63,17 @@ async function startScraping(pages, sendResponse, clearData = true) {
 
     // Adding initial scroll jump just in case they are already down the page
     for (let i = 0; i < pages; i++) {
+        if (shouldStopScraping) {
+            console.log("Scraping stopped by user.");
+            break;
+        }
         window.scrollTo(0, document.body.scrollHeight);
         scrollsLeft = pages - i - 1;
         // Wait 2.5 seconds per scroll
         await new Promise(resolve => setTimeout(resolve, 2500));
     }
 
+    shouldStopScraping = false;
     isScraping = false;
 
     // Generate results
@@ -76,7 +86,7 @@ async function startScraping(pages, sendResponse, clearData = true) {
     // Store globally so the popup can retrieve it if reopened
     lastResult = result;
 
-    showOverlay(result.tweetsCSV, result.usersCSV, result.tweetCount, result.userCount, baseName, result.timestamp);
+    showOverlay(result.tweetsCSV, result.usersCSV, result.allDataJSON, result.tweetCount, result.userCount, baseName, result.timestamp);
 
     if (typeof sendResponse === 'function') {
         sendResponse({ status: 'done', result });
@@ -102,7 +112,7 @@ function getBaseNameFromUrl() {
     return 'x';
 }
 
-function showOverlay(tweetsCSV, usersCSV, tweetCount, userCount, baseName = 'x', timestamp = Date.now()) {
+function showOverlay(tweetsCSV, usersCSV, allDataJSON, tweetCount, userCount, baseName = 'x', timestamp = Date.now()) {
     let overlay = document.getElementById('xscraper-overlay');
     if (overlay) overlay.remove();
 
@@ -119,8 +129,9 @@ function showOverlay(tweetsCSV, usersCSV, tweetCount, userCount, baseName = 'x',
     overlay.innerHTML = `
         <h3 style="margin: 0 0 10px 0; font-size: 18px; font-weight: bold;">X Scraper Complete</h3>
         <p style="margin: 0 0 15px 0; font-size: 14px; color: #657786;">Found ${tweetCount} tweets and ${userCount} users.</p>
-        <button id="xs-dl-tweets" style="display: block; width: 100%; margin-bottom: 10px; padding: 10px; background: #1DA1F2; color: #fff; border: none; border-radius: 9999px; cursor: pointer; font-size: 15px; font-weight: bold; transition: background 0.2s;">Download Tweets</button>
-        <button id="xs-dl-users" style="display: block; width: 100%; margin-bottom: 15px; padding: 10px; background: #17bf63; color: #fff; border: none; border-radius: 9999px; cursor: pointer; font-size: 15px; font-weight: bold; transition: background 0.2s;">Download Users</button>
+        <button id="xs-dl-tweets" style="display: block; width: 100%; margin-bottom: 10px; padding: 10px; background: #1DA1F2; color: #fff; border: none; border-radius: 9999px; cursor: pointer; font-size: 15px; font-weight: bold; transition: background 0.2s;">Download Tweets CSV</button>
+        <button id="xs-dl-users" style="display: block; width: 100%; margin-bottom: 10px; padding: 10px; background: #17bf63; color: #fff; border: none; border-radius: 9999px; cursor: pointer; font-size: 15px; font-weight: bold; transition: background 0.2s;">Download Users CSV</button>
+        <button id="xs-dl-json" style="display: block; width: 100%; margin-bottom: 15px; padding: 10px; background: #6e84a3; color: #fff; border: none; border-radius: 9999px; cursor: pointer; font-size: 15px; font-weight: bold; transition: background 0.2s;">Download JSON (All Data)</button>
         <button id="xs-close" style="display: block; width: 100%; padding: 10px; background: #e1e8ed; color: #14171a; border: none; border-radius: 9999px; cursor: pointer; font-size: 15px; font-weight: bold; transition: background 0.2s;">Close</button>
     `;
 
@@ -145,6 +156,7 @@ function showOverlay(tweetsCSV, usersCSV, tweetCount, userCount, baseName = 'x',
 
     document.getElementById('xs-dl-tweets').onclick = () => downloadCsv(`${baseName}_tweets_${timestamp}.csv`, tweetsCSV);
     document.getElementById('xs-dl-users').onclick = () => downloadCsv(`${baseName}_users_${timestamp}.csv`, usersCSV);
+    document.getElementById('xs-dl-json').onclick = () => downloadCsv(`${baseName}_data_${timestamp}.json`, allDataJSON);
     document.getElementById('xs-close').onclick = () => overlay.remove();
 }
 
@@ -172,7 +184,7 @@ class XScraperEngine {
             'replies', 'source', 'mentions_of_tweeter', 'context_annotations',
             'possibly_sensitive', 'conversation_id', 'withheld_copyright',
             'withheld_in_countries', 'withheld_scope', 'is_protected_or_deleted',
-            'retweeter_api_cursor', 'views', 'blue_verified', 'video_views'
+            'retweeter_api_cursor', 'views', 'blue_verified', 'video_views', 'user_geo_enabled'
         ];
 
         this.userHeader = [
@@ -203,13 +215,23 @@ class XScraperEngine {
         return rec;
     }
 
-    formatXDate(dateStr) {
+    formatXDate(dateStr, onlyDate = false) {
         if (!dateStr) return null;
         try {
+            // Check if already in YYYY-MM-DD or YYYY-MM-DD HH:MM:SS
+            if (typeof dateStr === 'string') {
+                if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
+                if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(dateStr)) {
+                    return onlyDate ? dateStr.split(' ')[0] : dateStr;
+                }
+            }
+
             const d = new Date(dateStr);
-            if (isNaN(d)) return dateStr;
+            if (isNaN(d.getTime())) return dateStr;
             const pad = n => String(n).padStart(2, '0');
-            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+            const datePart = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+            if (onlyDate) return datePart;
+            return `${datePart} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
         } catch (e) {
             return dateStr;
         }
@@ -231,25 +253,52 @@ class XScraperEngine {
 
         const img = legacy.profile_image_url_https || obj.profile_image_url_https || (obj.avatar && obj.avatar.image_url) || null;
 
-        if (!this.usersDb[uId] || (img && !this.usersDb[uId].user_image_url)) {
-            const rec = this.initializeRecord("user");
-            rec.user_id = uId;
-            rec.user_screen_name = screenName;
-            rec.user_name = legacy.name || core.name || null;
-            rec.user_location = legacy.location || null;
-            rec.user_image_url = img;
-            rec.user_bio = legacy.description || null;
-            rec.user_followers = legacy.followers_count || 0;
-            rec.user_following = legacy.friends_count || 0;
-            rec.user_friends = legacy.friends_count || 0;
-            rec.user_lists = legacy.listed_count || 0;
-            rec.user_favorites = legacy.favourites_count || 0;
-            rec.user_tweets = legacy.statuses_count || 0;
-            rec.user_verified = (legacy.verified) ? 1 : 0;
-            rec.blue_verified = (obj.is_blue_verified) ? 1 : 0;
-            rec.user_created = this.formatXDate(legacy.created_at || null);
+        if (!this.usersDb[uId]) {
+            this.usersDb[uId] = this.initializeRecord("user");
+            this.usersDb[uId].user_id = uId;
+        }
 
-            this.usersDb[uId] = rec;
+        const rec = this.usersDb[uId];
+
+        // Fill in missing bits
+        if (!rec.user_screen_name) rec.user_screen_name = screenName;
+        // Location - Handle string or object {location: "..."}
+        let loc = legacy.location || core.location || obj.location || null;
+        if (loc && typeof loc === 'object' && loc.location !== undefined) loc = loc.location;
+        if (loc !== null && loc !== undefined && loc !== "") {
+            rec.user_location = String(loc);
+        }
+        if (!rec.user_image_url) rec.user_image_url = img;
+        if (!rec.user_bio) rec.user_bio = legacy.description || null;
+
+        if (!rec.user_url) {
+            const urlData = legacy.entities?.url?.urls?.[0];
+            rec.user_url = urlData?.expanded_url || legacy.url || null;
+        }
+
+        // Stats (update if non-zero)
+        if (legacy.followers_count) rec.user_followers = legacy.followers_count;
+        if (legacy.friends_count) {
+            rec.user_following = legacy.friends_count;
+            rec.user_friends = legacy.friends_count;
+        }
+        if (legacy.listed_count) rec.user_lists = legacy.listed_count;
+        if (legacy.favourites_count) rec.user_favorites = legacy.favourites_count;
+        if (legacy.statuses_count) rec.user_tweets = legacy.statuses_count;
+
+        // Flags
+        // Flags
+        const verObj = obj.verification || core.verification || {};
+        const vType = (verObj.verified_type || "").toLowerCase();
+        // user_verified is legacy/org (Gold/Grey or any non-paid blue)
+        const isVer = legacy.verified || verObj.verified || (vType && vType !== 'blue');
+        if (isVer) rec.user_verified = 1;
+
+        if (obj.is_blue_verified || core.is_blue_verified || vType === 'blue') rec.blue_verified = 1;
+        if (legacy.geo_enabled) rec.user_geo_enabled = 1;
+
+        if (!rec.user_created) {
+            rec.user_created = this.formatXDate(legacy.created_at || obj.created_at || (obj.core && obj.core.created_at) || null, true);
         }
     }
 
@@ -305,6 +354,7 @@ class XScraperEngine {
 
                         if (tId && !this.tweets[tId]) {
                             const uId = String(tRes.core?.user_results?.result?.rest_id || '');
+                            // Re-fetch uData after the fresh extractAndStoreUser call
                             const uData = this.usersDb[uId] || {};
 
                             const fullDate = this.formatXDate(leg.created_at || null);
@@ -354,6 +404,7 @@ class XScraperEngine {
                                 user_screen_name: uData.user_screen_name || null,
                                 user_name: uData.user_name || null,
                                 user_location: uData.user_location || null,
+                                user_geo_enabled: uData.user_geo_enabled || 0,
                                 user_image_url: uData.user_image_url || null,
                                 user_bio: uData.user_bio || null,
                                 user_verified: uData.user_verified || 0,
@@ -371,6 +422,12 @@ class XScraperEngine {
                                 is_quote: (leg.is_quote_status || leg.quoted_status_id_str) ? "1" : null,
                                 quoted_tweet_id: leg.quoted_status_id_str || null,
                                 hashtags: hMatches.length > 0 ? hMatches.join(' ') : null,
+                                coordinates_lat: leg.geo?.coordinates?.[0] || null,
+                                coordinates_long: leg.geo?.coordinates?.[1] || null,
+                                country: leg.place?.country || null,
+                                location_fullname: leg.place?.full_name || null,
+                                location_name: leg.place?.name || null,
+                                location_type: leg.place?.place_type || null,
                                 has_link: linksList.length > 0 ? "1" : null,
                                 links: linksList.join(' '),
                                 expanded_links: expandedList.join(' '),
@@ -387,6 +444,11 @@ class XScraperEngine {
                                 video_views: vViews > 0 ? vViews : 0,
                                 tweet_permalink_path: "https://x.com/" + (uData.user_screen_name || 'i') + "/status/" + tId
                             });
+
+                            if (leg.geo || leg.place) {
+                                if (this.usersDb[uId]) this.usersDb[uId].user_geo_enabled = 1;
+                                rec.user_geo_enabled = 1;
+                            }
 
                             this.tweets[tId] = rec;
                         }
@@ -419,7 +481,13 @@ class XScraperEngine {
             usersCSV += this.userHeader.map(h => escapeCSV(u[h])).join(",") + "\n";
         }
 
-        return { tweetsCSV, usersCSV, tweetCount: tweetsArr.length, userCount: usersArr.length };
+        return {
+            tweetsCSV,
+            usersCSV,
+            allDataJSON: JSON.stringify({ tweets: tweetsArr, users: usersArr }, null, 2),
+            tweetCount: tweetsArr.length,
+            userCount: usersArr.length
+        };
     }
 }
 

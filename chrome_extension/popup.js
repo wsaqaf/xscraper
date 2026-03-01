@@ -9,7 +9,13 @@ chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
             if (res && res.isScraping) {
                 document.getElementById('controls').classList.add('hidden');
                 document.getElementById('status').classList.remove('hidden');
-                document.getElementById('progressText').innerText = `\nScrolls left: ${res.scrollsLeft}`;
+                if (res.isStopping) {
+                    document.getElementById('progressText').innerText = "\nStopping and generating results...";
+                    document.getElementById('stopBtn').disabled = true;
+                } else {
+                    document.getElementById('stopBtn').disabled = false;
+                    document.getElementById('progressText').innerText = `\nScrolls left: ${res.scrollsLeft}`;
+                }
                 document.getElementById('liveStatsText').innerText = `Tweets: ${res.tweetCount || 0} | Users: ${res.userCount || 0}`;
                 startProgressChecker(tab.id);
             } else if (res) {
@@ -37,7 +43,13 @@ function startProgressChecker(tabId) {
             }
             if (res && res.isScraping) {
                 hasStarted = true;
-                document.getElementById('progressText').innerText = `\nScrolls left: ${res.scrollsLeft}`;
+                if (res.isStopping) {
+                    document.getElementById('progressText').innerText = "\nStopping and generating results...";
+                    document.getElementById('stopBtn').disabled = true;
+                } else {
+                    document.getElementById('progressText').innerText = `\nScrolls left: ${res.scrollsLeft}`;
+                    document.getElementById('stopBtn').disabled = false;
+                }
                 document.getElementById('liveStatsText').innerText = `Tweets: ${res.tweetCount || 0} | Users: ${res.userCount || 0}`;
             } else if (res && res.lastResult) {
                 clearInterval(checkProgress);
@@ -93,6 +105,12 @@ function showResults(result, isPrevious = false) {
         const ts = result.timestamp || Date.now();
         downloadLink(result.usersCSV, `${baseName}_users_${ts}.csv`);
     };
+
+    document.getElementById('dlJSON').onclick = () => {
+        const baseName = result.baseName || 'x';
+        const ts = result.timestamp || Date.now();
+        downloadLink(result.allDataJSON, `${baseName}_data_${ts}.json`);
+    };
 }
 
 document.getElementById('startBtn').addEventListener('click', async () => {
@@ -108,6 +126,7 @@ document.getElementById('startBtn').addEventListener('click', async () => {
     document.getElementById('controls').classList.add('hidden');
     document.getElementById('status').classList.remove('hidden');
     document.getElementById('results').classList.add('hidden');
+    document.getElementById('stopBtn').disabled = false;
 
     if (refreshPage) {
         document.getElementById('progressText').innerText = "\nReloading page...";
@@ -131,4 +150,11 @@ document.getElementById('startBtn').addEventListener('click', async () => {
     // Wait for startScraping response handler loop
     // But since startScraping takes a while, we also poll progress independently
     startProgressChecker(tab.id);
+});
+
+document.getElementById('stopBtn').addEventListener('click', async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    chrome.tabs.sendMessage(tab.id, { action: 'stopScraping' });
+    document.getElementById('progressText').innerText = "\nStopping and generating results...";
+    document.getElementById('stopBtn').disabled = true;
 });

@@ -12,6 +12,7 @@ $message = "";
 $processed = false;
 $tweetsFile = "";
 $usersFile = "";
+$jsonFile = "";
 
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_FILES["fileToUpload"])) {
     $originalName = pathinfo($_FILES["fileToUpload"]["name"], PATHINFO_FILENAME);
@@ -53,6 +54,15 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_FILES["fileToUpload"])) {
                     $tweetsFile = basename($existingTweets[0]);
                     $usersFile = basename($existingUsers[0]);
 
+                    // Try to find the matching JSON file
+                    $existingJson = glob(UPLOAD_FOLDER . $sanitizedName . '_data_*.json');
+                    if ($existingJson) {
+                        usort($existingJson, function ($a, $b) {
+                            return filemtime($b) - filemtime($a);
+                        });
+                        $jsonFile = basename($existingJson[0]);
+                    }
+
                     // Count lines helper
                     $countCsv = function ($file) {
                         $c = 0;
@@ -83,6 +93,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_FILES["fileToUpload"])) {
                     if ($result) {
                         $tweetsFile = $result['tweets'];
                         $usersFile = $result['users'];
+                        $jsonFile = $result['json'] ?? "";
                         $tCount = $result['tweet_count'] ?? 0;
                         $uCount = $result['user_count'] ?? 0;
                         $message = "File processed successfully! Found $tCount tweets and $uCount users.";
@@ -179,6 +190,18 @@ endif; ?>
                             target="_blank">View Table</a>
                     </div>
                 </div>
+                <?php if ($jsonFile): ?>
+                <div class="list-group-item d-flex justify-content-between align-items-center flex-wrap">
+                    <span><strong>All Data JSON</strong><br><small>
+                            <?php echo $jsonFile; ?>
+                        </small></span>
+                    <div class="btn-group-responsive">
+                        <a href="UPLOAD_FOLDER/<?php echo $jsonFile; ?>" class="btn btn-sm btn-outline-info"
+                            download>Download JSON</a>
+                    </div>
+                </div>
+                <?php
+    endif; ?>
             </div>
             <a href="index.php" class="btn btn-link mt-4 d-block text-center">Upload another file</a>
             <?php
@@ -197,7 +220,7 @@ endif; ?>
 
         <?php
 // SECTION: List Existing Files
-$existing_csvs = glob(UPLOAD_FOLDER . '*.csv');
+$existing_csvs = array_merge(glob(UPLOAD_FOLDER . '*.csv'), glob(UPLOAD_FOLDER . '*.json'));
 if ($existing_csvs) {
     // Sort by modification time (newest first)
     usort($existing_csvs, function ($a, $b) {
@@ -214,8 +237,12 @@ if ($existing_csvs) {
         $size = round(filesize($csv) / 1024, 1) . ' KB';
 
         // Identify type
-        $badgeClass = strpos($filename, '_tweets_') !== false ? 'badge-info' : (strpos($filename, '_users_') !== false ? 'badge-warning' : 'badge-secondary');
-        $type = strpos($filename, '_tweets_') !== false ? 'Tweets' : (strpos($filename, '_users_') !== false ? 'Users' : 'CSV');
+        $isTweets = strpos($filename, '_tweets_') !== false;
+        $isUsers = strpos($filename, '_users_') !== false;
+        $isJson = strpos($filename, '.json') !== false;
+
+        $badgeClass = $isTweets ? 'badge-info' : ($isUsers ? 'badge-warning' : ($isJson ? 'badge-dark' : 'badge-secondary'));
+        $type = $isTweets ? 'Tweets' : ($isUsers ? 'Users' : ($isJson ? 'JSON' : 'File'));
 
         echo '<div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">';
         echo '<div>';
@@ -224,7 +251,9 @@ if ($existing_csvs) {
         echo '<br><small class="text-muted">Processed: ' . $date . ' • Size: ' . $size . '</small>';
         echo '</div>';
         echo '<div class="btn-group-sm">';
-        echo '<a href="view_tweets.php?url=' . urlencode($filename) . '" class="btn btn-outline-primary mr-1" target="_blank">View</a>';
+        if (!$isJson) {
+            echo '<a href="view_tweets.php?url=' . urlencode($filename) . '" class="btn btn-outline-primary mr-1" target="_blank">View</a>';
+        }
         echo '<a href="UPLOAD_FOLDER/' . urlencode($filename) . '" class="btn btn-outline-secondary" download>Download</a>';
         echo '</div>';
         echo '</div>';
