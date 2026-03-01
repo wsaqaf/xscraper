@@ -13,6 +13,8 @@ let scrollsLeft = 0;
 let lastResult = null;
 let engine = null;
 let shouldStopScraping = false;
+let isWaiting = false;
+let waitSecondsLeft = 0;
 
 // Listen for intercepted JSON data
 window.addEventListener('message', function (event) {
@@ -39,7 +41,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     } else if (request.action === 'getProgress') {
         const tweetCount = engine ? Object.keys(engine.tweets).length : 0;
         const userCount = engine ? Object.keys(engine.usersDb).length : 0;
-        sendResponse({ isScraping, isStopping: shouldStopScraping, scrollsLeft, count: collectedData.length, tweetCount, userCount, lastResult });
+        sendResponse({
+            isScraping,
+            isStopping: shouldStopScraping,
+            scrollsLeft,
+            count: collectedData.length,
+            tweetCount,
+            userCount,
+            lastResult,
+            isWaiting,
+            waitSecondsLeft
+        });
     } else if (request.action === 'stopScraping') {
         shouldStopScraping = true;
         sendResponse({ status: 'stopping' });
@@ -61,20 +73,67 @@ async function startScraping(pages, sendResponse, clearData = true) {
         engine.processData(collectedData);
     }
 
-    // Adding initial scroll jump just in case they are already down the page
+    let consecutiveNoGrowth = 0;
+    let lastScrollHeight = 0;
+
     for (let i = 0; i < pages; i++) {
         if (shouldStopScraping) {
             console.log("Scraping stopped by user.");
             break;
         }
-        window.scrollTo(0, document.body.scrollHeight);
+
+        const currentHeight = document.body.scrollHeight;
+
+        // 1. Check for Retry Button (Error handling)
+        const retrySpan = Array.from(document.querySelectorAll('span'))
+            .find(s => s.textContent.trim() === 'Retry');
+
+        if (retrySpan) {
+            console.log("X Scraper: Retry button detected. Clicking...");
+            retrySpan.click();
+            // Short wait to see if it resolves
+            await new Promise(resolve => setTimeout(resolve, 3000));
+
+            // Check again
+            const retrySpanSubsequent = Array.from(document.querySelectorAll('span'))
+                .find(s => s.textContent.trim() === 'Retry');
+            if (retrySpanSubsequent) {
+                console.log("X Scraper: Retry persistent. Likely rate limited. Waiting 15 minutes...");
+                await waitWithCountdown(15 * 60); // 15 minutes
+                if (shouldStopScraping) break;
+                // Try clicking one more time after waiting
+                const finalRetry = Array.from(document.querySelectorAll('span'))
+                    .find(s => s.textContent.trim() === 'Retry');
+                if (finalRetry) finalRetry.click();
+            }
+        }
+
+        // 2. Perform Scroll
+        window.scrollTo(0, currentHeight);
         scrollsLeft = pages - i - 1;
-        // Wait 2.5 seconds per scroll
+
+        // 3. Wait for content
+        // We wait slightly longer if we suspect we are reaching a limit or if content is slow
         await new Promise(resolve => setTimeout(resolve, 2500));
+
+        // 4. Check for end of feed
+        if (document.body.scrollHeight === currentHeight) {
+            consecutiveNoGrowth++;
+            if (consecutiveNoGrowth >= 4) { // Allow a few retries for slow loading
+                console.log("X Scraper: No more content detected after multiple attempts. Stopping.");
+                break;
+            }
+        } else {
+            consecutiveNoGrowth = 0;
+        }
+
+        lastScrollHeight = document.body.scrollHeight;
     }
 
     shouldStopScraping = false;
     isScraping = false;
+    isWaiting = false;
+    waitSecondsLeft = 0;
 
     // Generate results
     const result = engine.convertToCSV();
@@ -91,6 +150,17 @@ async function startScraping(pages, sendResponse, clearData = true) {
     if (typeof sendResponse === 'function') {
         sendResponse({ status: 'done', result });
     }
+}
+
+async function waitWithCountdown(seconds) {
+    isWaiting = true;
+    waitSecondsLeft = seconds;
+    while (waitSecondsLeft > 0 && !shouldStopScraping) {
+        await new Promise(res => setTimeout(res, 1000));
+        waitSecondsLeft--;
+    }
+    isWaiting = false;
+    waitSecondsLeft = 0;
 }
 
 function getBaseNameFromUrl() {

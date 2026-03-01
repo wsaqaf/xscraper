@@ -9,14 +9,7 @@ chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
             if (res && res.isScraping) {
                 document.getElementById('controls').classList.add('hidden');
                 document.getElementById('status').classList.remove('hidden');
-                if (res.isStopping) {
-                    document.getElementById('progressText').innerText = "\nStopping and generating results...";
-                    document.getElementById('stopBtn').disabled = true;
-                } else {
-                    document.getElementById('stopBtn').disabled = false;
-                    document.getElementById('progressText').innerText = `\nScrolls left: ${res.scrollsLeft}`;
-                }
-                document.getElementById('liveStatsText').innerText = `Tweets: ${res.tweetCount || 0} | Users: ${res.userCount || 0}`;
+                updateStatusUI(res);
                 startProgressChecker(tab.id);
             } else if (res) {
                 if (res.count > 0 || res.lastResult) {
@@ -43,14 +36,7 @@ function startProgressChecker(tabId) {
             }
             if (res && res.isScraping) {
                 hasStarted = true;
-                if (res.isStopping) {
-                    document.getElementById('progressText').innerText = "\nStopping and generating results...";
-                    document.getElementById('stopBtn').disabled = true;
-                } else {
-                    document.getElementById('progressText').innerText = `\nScrolls left: ${res.scrollsLeft}`;
-                    document.getElementById('stopBtn').disabled = false;
-                }
-                document.getElementById('liveStatsText').innerText = `Tweets: ${res.tweetCount || 0} | Users: ${res.userCount || 0}`;
+                updateStatusUI(res);
             } else if (res && res.lastResult) {
                 clearInterval(checkProgress);
                 showResults(res.lastResult, false);
@@ -60,6 +46,23 @@ function startProgressChecker(tabId) {
             }
         });
     }, 1000);
+}
+
+function updateStatusUI(res) {
+    if (!res) return;
+    if (res.isStopping) {
+        document.getElementById('progressText').innerText = "\nStopping and generating results...";
+        document.getElementById('stopBtn').disabled = true;
+    } else if (res.isWaiting) {
+        const mins = Math.floor(res.waitSecondsLeft / 60);
+        const secs = res.waitSecondsLeft % 60;
+        document.getElementById('progressText').innerText = `\nRate limit hit. Waiting: ${mins}m ${secs}s`;
+        document.getElementById('stopBtn').disabled = false;
+    } else {
+        document.getElementById('progressText').innerText = `\nScrolls left: ${res.scrollsLeft}`;
+        document.getElementById('stopBtn').disabled = false;
+    }
+    document.getElementById('liveStatsText').innerText = `Tweets: ${res.tweetCount || 0} | Users: ${res.userCount || 0}`;
 }
 
 function showResults(result, isPrevious = false) {

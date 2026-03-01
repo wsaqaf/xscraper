@@ -9,6 +9,8 @@ Unlike traditional methods that require downloading and parsing HAR files offlin
 - **Real-time Progress Tracking:** See live counts of how many unique tweets and users have been scraped so far directly in the extension popup while it scrolls.
 - **Set Your Scrolling Speed:** Input exactly how many pages you want to retrieve. The extension autonomously scrolls to the bottom of the feed at timed increments (2.5 seconds) allowing lazy-loading elements to yield fully populated JSON trees.
 - **Smart Naming Convention:** Identifies if you are on a profile (e.g., `/userx`) or searching (via `?q=testing...`), dynamically naming your resulting files `userx_tweets...`, `userx_data...`, etc., to automatically sort your data collections.
+- **Automated Rate Limit Handling:** Detects X's "Retry" button and autonomously waits for 15 minutes if throttled, resuming exactly where it left off.
+- **End-of-Feed Detection:** Intelligently stops the scrolling process if no more content is detected, preventing unnecessary wait times.
 - **In-Memory Transformation:** Extracts more than 60 data columns cleanly avoiding external backend servers, completely isolating operations for security.
 - **1-Click Generation:** Auto-constructs and pushes three discrete downloads directly from your browser: 
   - `tweets.csv` (contains raw texts, interactions, user mappings, hashtags, quote identifiers, and verified status)
