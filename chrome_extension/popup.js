@@ -58,9 +58,11 @@ function updateStatusUI(res) {
         const secs = res.waitSecondsLeft % 60;
         document.getElementById('progressText').innerText = `\nRate limit hit. Waiting: ${mins}m ${secs}s`;
         document.getElementById('stopBtn').disabled = false;
+        document.getElementById('resumeBtn').classList.remove('hidden');
     } else {
         document.getElementById('progressText').innerText = `\nScrolls left: ${res.scrollsLeft}`;
         document.getElementById('stopBtn').disabled = false;
+        document.getElementById('resumeBtn').classList.add('hidden');
     }
     document.getElementById('liveStatsText').innerText = `Tweets: ${res.tweetCount || 0} | Users: ${res.userCount || 0}`;
 }
@@ -160,4 +162,10 @@ document.getElementById('stopBtn').addEventListener('click', async () => {
     chrome.tabs.sendMessage(tab.id, { action: 'stopScraping' });
     document.getElementById('progressText').innerText = "\nStopping and generating results...";
     document.getElementById('stopBtn').disabled = true;
+});
+
+document.getElementById('resumeBtn').addEventListener('click', async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    chrome.tabs.sendMessage(tab.id, { action: 'resumeScraping' });
+    document.getElementById('resumeBtn').classList.add('hidden');
 });

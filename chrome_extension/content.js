@@ -55,6 +55,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     } else if (request.action === 'stopScraping') {
         shouldStopScraping = true;
         sendResponse({ status: 'stopping' });
+    } else if (request.action === 'resumeScraping') {
+        waitSecondsLeft = 0;
+        isWaiting = false;
+        sendResponse({ status: 'resuming' });
     }
 });
 
