@@ -30,17 +30,29 @@ The extension will auto-scroll the webpage, fetching the API responses as you go
 
 ---
 
-## Option 2: PHP & Web Interface (HAR Processing)
-If you prefer handling raw network requests, you can save `.har` (HTTP Archive) files from Chrome's Network inspector and drop them into a graphical PHP web application. 
-
-### Setup Guide
+## Option 2: Native PHP Server
 Requires a local web server (like Apache/XAMPP or MAMP on macOS/Ubuntu) running PHP. 
 
 1. Ensure the `xscraper` directory is placed inside your server's root folder (e.g., `htdocs` or `/var/www/html`).
 2. Navigate to `http://localhost/xscraper/index.php`.
 3. Drop a `.har` file exported from Google Chrome into the UI.
 4. The PHP script (`xscraper.php`) will aggressively parse the JSON structures from the HAR entries, creating compiled `.csv` and `.json` documents natively into the `UPLOAD_FOLDER/` directly on your server.
-5. In the UI, click to instantly view or download the rendered CSV or JSON contents.
+
+## Option 3: Docker (Recommended for Large Files)
+If you want to avoid setting up a local PHP environment or if you are dealing with very large HAR files (>200MB), using Docker is the best approach. It comes pre-configured with the necessary PHP settings.
+
+### Setup Guide
+1. Ensure you have [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running.
+2. In your terminal, navigate to the `xscraper` directory and run:
+   ```bash
+   docker-compose up -d
+   ```
+3. Navigate to `http://localhost:8080` in your browser.
+
+**Why use Docker?**
+- **No Dependencies:** No need to install PHP, Apache, or XAMPP on your machine.
+- **Large File Support:** Pre-configured to handle uploads up to 500MB and increased memory limits for processing.
+- **Persistent Storage:** Your processed files remain in the `UPLOAD_FOLDER` on your local machine even if the container is stopped.
 
 ### PHP Files Overview
 - `xscraper.php` - The core parsing logical engine. Iterates deeply through GraphQL and instruction schemas to build identical data structures.

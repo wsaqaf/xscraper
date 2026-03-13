@@ -274,19 +274,4 @@ if ($existing_csvs) {
 
 </body>
 
-</html>iv>
-
-<footer class="text-center mt-5 mb-4 text-muted">
-    <small>
-        <a href="https://github.org/wsaqaf/xscraper" target="_blank" class="text-secondary text-decoration-none">
-            View on GitHub
-        </a>
-    </small>
-</footer>
-
-</body>
-
-</html>
-</body>
-
 </html>

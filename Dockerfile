@@ -1,0 +1,25 @@
+# Use the official PHP 8.2 Apache image
+FROM php:8.2-apache
+
+# Enable Apache mod_rewrite (though not strictly needed for this basic app, it's good practice)
+RUN a2enmod rewrite
+
+# Install any necessary system dependencies if needed (none identified so far)
+# RUN apt-get update && apt-get install -y libpng-dev libjpeg-dev ...
+
+# Copy the custom PHP configuration
+COPY uploads.ini /usr/local/etc/php/conf.d/uploads.ini
+
+# Set the working directory to the web root
+WORKDIR /var/www/html
+
+# Copy the application files to the container
+COPY . /var/www/html/
+
+# Ensure UPLOAD_FOLDER exists and is writable by the web server
+RUN mkdir -p /var/www/html/UPLOAD_FOLDER && \
+    chown -R www-data:www-data /var/www/html && \
+    chmod -R 775 /var/www/html/UPLOAD_FOLDER
+
+# Expose port 80
+EXPOSE 80

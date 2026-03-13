@@ -1,0 +1,9 @@
+.git
+.DS_Store
+UPLOAD_FOLDER/*
+!UPLOAD_FOLDER/.gitkeep
+chrome_extension.zip
+node_modules
+.dockerignore
+Dockerfile
+docker-compose.yml
