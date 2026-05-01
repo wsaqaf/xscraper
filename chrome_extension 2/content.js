@@ -253,8 +253,8 @@ async function startScraping(pages, sendResponse, clearData = true, depth = 0, i
     waitSecondsLeft = 0;
     isOverrideRequested = false;
 
-    // Report final results to background and wait for confirmation to avoid race conditions
-    await new Promise(r => chrome.runtime.sendMessage({ action: 'appendData', tweets: engine.tweets, users: engine.usersDb }, r));
+    // Report final results to background
+    chrome.runtime.sendMessage({ action: 'appendData', tweets: engine.tweets, users: engine.usersDb });
 
     if (isChild) {
         chrome.runtime.sendMessage({ action: 'childDone' });

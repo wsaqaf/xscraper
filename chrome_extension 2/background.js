@@ -50,7 +50,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
     if (request.action === 'getMasterData') {
         sendResponse({ tweets: masterTweets, users: masterUsers });
-        return true;
+        return;
     }
     if (request.action === 'clearMasterData') {
         masterTweets = {};
