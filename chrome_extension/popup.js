@@ -60,67 +60,92 @@ function updateStatusUI(res) {
         document.getElementById('stopBtn').disabled = false;
         document.getElementById('resumeBtn').classList.remove('hidden');
     } else {
-        document.getElementById('progressText').innerText = `\nScrolls left: ${res.scrollsLeft}`;
+        if (res.isPaused) {
+            document.getElementById('progressText').innerText = `\nPaused. Scrolls left: ${res.scrollsLeft}`;
+            document.getElementById('pauseBtn').innerText = "Unpause Scrolling";
+            document.getElementById('pauseBtn').style.background = "#17bf63";
+        } else if (res.isCrawling || res.queueLength > 0) {
+            document.getElementById('progressText').innerText = `\nCrawling replies: ${res.queueLength} threads in queue...`;
+            document.getElementById('pauseBtn').innerText = "Pause Scrolling";
+            document.getElementById('pauseBtn').style.background = "#f4a261";
+        } else {
+            document.getElementById('progressText').innerText = `\nScrolls left: ${res.scrollsLeft}`;
+            document.getElementById('pauseBtn').innerText = "Pause Scrolling";
+            document.getElementById('pauseBtn').style.background = "#f4a261";
+        }
         document.getElementById('stopBtn').disabled = false;
         document.getElementById('resumeBtn').classList.add('hidden');
     }
     document.getElementById('liveStatsText').innerText = `Tweets: ${res.tweetCount || 0} | Users: ${res.userCount || 0}`;
 }
 
-function showResults(result, isPrevious = false) {
-    document.getElementById('status').classList.add('hidden');
-    document.getElementById('results').classList.remove('hidden');
-    document.getElementById('controls').classList.remove('hidden');
+async function showResults(result, isPrevious = false) {
+    // Attempt to pull aggregated data from background if it exists
+    chrome.runtime.sendMessage({ action: 'getMasterData' }, (masterData) => {
+        let finalResult = result;
+        if (masterData && Object.keys(masterData.tweets || {}).length > 0) {
+            const aggregated = convertToCSV(masterData.tweets, masterData.users);
+            aggregated.baseName = result.baseName;
+            aggregated.timestamp = result.timestamp;
+            finalResult = aggregated;
+        }
 
-    if (isPrevious) {
-        document.getElementById('resultsTitle').innerText = "Previous Results:";
-    } else {
-        document.getElementById('resultsTitle').innerText = "Scraping Complete!";
-    }
+        document.getElementById('status').classList.add('hidden');
+        document.getElementById('results').classList.remove('hidden');
+        document.getElementById('controls').classList.remove('hidden');
 
-    document.getElementById('stats').innerText = `${result.tweetCount} tweets, ${result.userCount} users.`;
+        if (isPrevious) {
+            document.getElementById('resultsTitle').innerText = "Previous Results:";
+        } else {
+            document.getElementById('resultsTitle').innerText = "Scraping Complete!";
+        }
 
-    // Automatically uncheck the refresh checkbox so the next scrape resumes by default
-    document.getElementById('refreshPage').checked = false;
+        document.getElementById('stats').innerText = `${finalResult.tweetCount} tweets, ${finalResult.userCount} users.`;
 
-    const downloadLink = (content, filename) => {
-        const contentWithBOM = "\uFEFF" + content;
-        const blob = new Blob([contentWithBOM], { type: 'application/octet-stream' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.style.display = 'none';
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => {
-            URL.revokeObjectURL(url);
-            a.remove();
-        }, 1000);
-    };
+        // Automatically uncheck the refresh checkbox so the next scrape resumes by default
+        document.getElementById('refreshPage').checked = false;
 
-    document.getElementById('dlTweets').onclick = () => {
-        const baseName = result.baseName || 'x';
-        const ts = result.timestamp || Date.now();
-        downloadLink(result.tweetsCSV, `${baseName}_tweets_${ts}.csv`);
-    };
+        const downloadLink = (content, filename, isJson = false) => {
+            const finalContent = isJson ? content : "\uFEFF" + content;
+            const blob = new Blob([finalContent], { type: isJson ? 'application/json' : 'application/octet-stream' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => {
+                URL.revokeObjectURL(url);
+                a.remove();
+            }, 1000);
+        };
 
-    document.getElementById('dlUsers').onclick = () => {
-        const baseName = result.baseName || 'x';
-        const ts = result.timestamp || Date.now();
-        downloadLink(result.usersCSV, `${baseName}_users_${ts}.csv`);
-    };
+        document.getElementById('dlTweets').onclick = () => {
+            const baseName = finalResult.baseName || 'x';
+            const ts = finalResult.timestamp || Date.now();
+            downloadLink(finalResult.tweetsCSV, `${baseName}_tweets_${ts}.csv`);
+        };
 
-    document.getElementById('dlJSON').onclick = () => {
-        const baseName = result.baseName || 'x';
-        const ts = result.timestamp || Date.now();
-        downloadLink(result.allDataJSON, `${baseName}_data_${ts}.json`);
-    };
+        document.getElementById('dlUsers').onclick = () => {
+            const baseName = finalResult.baseName || 'x';
+            const ts = finalResult.timestamp || Date.now();
+            downloadLink(finalResult.usersCSV, `${baseName}_users_${ts}.csv`);
+        };
+
+        document.getElementById('dlJSON').onclick = () => {
+            const baseName = finalResult.baseName || 'x';
+            const ts = finalResult.timestamp || Date.now();
+            downloadLink(finalResult.allDataJSON, `${baseName}_data_${ts}.json`, true);
+        };
+    });
 }
 
 document.getElementById('startBtn').addEventListener('click', async () => {
     const pages = document.getElementById('pages').value;
+    const crawlDepth = document.getElementById('crawlDepth').value;
     const refreshPage = document.getElementById('refreshPage').checked;
+    const includeHidden = document.getElementById('includeHidden').checked;
 
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab.url.includes('x.com') && !tab.url.includes('twitter.com')) {
@@ -135,14 +160,26 @@ document.getElementById('startBtn').addEventListener('click', async () => {
 
     if (refreshPage) {
         document.getElementById('progressText').innerText = "\nReloading page...";
-        chrome.storage.local.set({ autoScrapePages: parseInt(pages) }, () => {
+        chrome.storage.local.set({ 
+            autoScrapePages: parseInt(pages),
+            autoScrapeDepth: parseInt(crawlDepth),
+            autoScrapeHidden: includeHidden
+        }, () => {
+            chrome.runtime.sendMessage({ action: 'setSourceWindow', windowId: tab.windowId });
             chrome.tabs.reload(tab.id);
         });
         startProgressChecker(tab.id);
         return;
     }
 
-    chrome.tabs.sendMessage(tab.id, { action: 'startScraping', pages: parseInt(pages), clearData: refreshPage }, (response) => {
+    chrome.runtime.sendMessage({ action: 'setSourceWindow', windowId: tab.windowId });
+    chrome.tabs.sendMessage(tab.id, { 
+        action: 'startScraping', 
+        pages: parseInt(pages), 
+        depth: parseInt(crawlDepth),
+        includeHidden: includeHidden,
+        clearData: refreshPage 
+    }, (response) => {
         if (!response) {
             // Popup context might be lost or content script is not loaded
             return;
@@ -168,4 +205,17 @@ document.getElementById('resumeBtn').addEventListener('click', async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     chrome.tabs.sendMessage(tab.id, { action: 'resumeScraping' });
     document.getElementById('resumeBtn').classList.add('hidden');
+});
+
+document.getElementById('pauseBtn').addEventListener('click', async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    chrome.tabs.sendMessage(tab.id, { action: 'togglePause' }, (res) => {
+        if (res && res.isPaused) {
+            document.getElementById('pauseBtn').innerText = "Unpause Scrolling";
+            document.getElementById('pauseBtn').style.background = "#17bf63";
+        } else {
+            document.getElementById('pauseBtn').innerText = "Pause Scrolling";
+            document.getElementById('pauseBtn').style.background = "#f4a261";
+        }
+    });
 });

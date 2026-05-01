@@ -48,7 +48,7 @@ class XScraperEngine
     private function initializeRecord($type = "tweet")
     {
         $header = ($type === "user") ? $this->userHeader : $this->tweetHeader;
-        $rec = array_fill_keys($header, null);
+        $rec = array_fill_keys($header, "");
 
         if ($type === "user") {
             $rec['item_updated_time'] = date('Y-m-d H:i:s');
@@ -232,21 +232,36 @@ class XScraperEngine
                         ($data['data']['threaded_conversation_with_injections_v2']['instructions'] ?? []));
 
                     foreach ($instructions as $ins) {
-                        if (($ins['type'] ?? '') === 'TimelineAddEntries') {
-                            foreach ($ins['entries'] ?? [] as $item) {
-                                $eid = $item['entryId'] ?? '';
-                                if (strpos($eid, 'tweet-') === false && strpos($eid, 'promoted') === false)
-                                    continue;
+                        $entries = $ins['entries'] ?? ($ins['moduleItems'] ?? []);
+                        if (!$entries) continue;
 
-                                $tRes = $item['content']['itemContent']['tweet_results']['result'] ?? null;
-                                if (($tRes['__typename'] ?? '') === 'TweetWithVisibilityResults')
-                                    $tRes = $tRes['tweet'];
+                        foreach ($entries as $item) {
+                            $itemsToProcess = [];
+                            $eid = $item['entryId'] ?? ($item['item']['entryId'] ?? '');
 
-                                if (!$tRes || !isset($tRes['legacy']))
-                                    continue;
+                            if (strpos($eid, 'tweet-') !== false || strpos($eid, 'promoted') !== false) {
+                                $itemsToProcess[] = $item;
+                            } elseif (strpos($eid, 'conversationthread-') !== false || strpos($eid, 'module-') !== false) {
+                                $subItems = $item['content']['items'] ?? ($item['item']['itemContent']['items'] ?? []);
+                                foreach ($subItems as $sub) {
+                                    if (isset($sub['item'])) {
+                                        $itemsToProcess[] = $sub['item'];
+                                    }
+                                }
+                            }
 
-                                $leg = $tRes['legacy'];
-                                $tId = (string)$tRes['rest_id'];
+                                foreach ($itemsToProcess as $processItem) {
+                                    $tRes = $processItem['content']['itemContent']['tweet_results']['result'] ?? 
+                                            $processItem['itemContent']['tweet_results']['result'] ?? null;
+
+                                    if (($tRes['__typename'] ?? '') === 'TweetWithVisibilityResults')
+                                        $tRes = $tRes['tweet'] ?? null;
+
+                                    if (!$tRes || !isset($tRes['legacy']))
+                                        continue;
+
+                                    $leg = $tRes['legacy'];
+                                    $tId = (string)$tRes['rest_id'];
 
                                 if (isset($tRes['core']['user_results']['result'])) {
                                     $this->extractAndStoreUser($tRes['core']['user_results']['result']);
@@ -356,6 +371,7 @@ class XScraperEngine
                                     }
 
                                     $this->tweets[$tId] = $rec;
+                                }
                                 }
                             }
                         }

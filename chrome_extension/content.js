@@ -16,6 +16,7 @@ let shouldStopScraping = false;
 let isWaiting = false;
 let waitSecondsLeft = 0;
 let isOverrideRequested = false;
+let isPaused = false;
 
 // Listen for intercepted JSON data
 window.addEventListener('message', function (event) {
@@ -34,33 +35,51 @@ window.addEventListener('message', function (event) {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'startScraping') {
         if (!isScraping) {
-            startScraping(request.pages, sendResponse, request.clearData !== false);
+            startScraping(request.pages, sendResponse, request.clearData !== false, request.depth || 0, false, request.includeHidden || false);
             return true; // Keep message channel open for async response
         } else {
             sendResponse({ status: 'error', message: 'Already scraping' });
         }
     } else if (request.action === 'getProgress') {
-        const tweetCount = engine ? Object.keys(engine.tweets).length : 0;
-        const userCount = engine ? Object.keys(engine.usersDb).length : 0;
+        const localTweetCount = engine ? Object.keys(engine.tweets).length : 0;
+        const localUserCount = engine ? Object.keys(engine.usersDb).length : 0;
         const isRetryVisible = !!findRetryButton();
-        sendResponse({
-            isScraping,
-            isStopping: shouldStopScraping,
-            scrollsLeft,
-            count: collectedData.length,
-            tweetCount,
-            userCount,
-            lastResult,
-            isWaiting,
-            waitSecondsLeft,
-            isRetryVisible
+        
+        const statusPromise = new Promise((resolve) => {
+            const timeout = setTimeout(() => resolve(null), 3000);
+            chrome.runtime.sendMessage({ action: 'getCrawlStatus' }, (status) => {
+                clearTimeout(timeout);
+                resolve(status);
+            });
         });
+
+        statusPromise.then((status) => {
+            sendResponse({
+                isScraping,
+                isStopping: shouldStopScraping,
+                scrollsLeft,
+                count: collectedData.length,
+                tweetCount: Math.max(localTweetCount, status?.tweetCount || 0),
+                userCount: Math.max(localUserCount, status?.userCount || 0),
+                lastResult,
+                isWaiting,
+                waitSecondsLeft,
+                isRetryVisible,
+                isPaused,
+                queueLength: status?.queueLength || 0,
+                isCrawling: status?.isCrawling || false
+            });
+        });
+        return true; // async response
     } else if (request.action === 'stopScraping') {
         shouldStopScraping = true;
         sendResponse({ status: 'stopping' });
     } else if (request.action === 'resumeScraping') {
         isOverrideRequested = true;
         sendResponse({ status: 'resuming' });
+    } else if (request.action === 'togglePause') {
+        isPaused = !isPaused;
+        sendResponse({ status: 'toggled', isPaused });
     }
 });
 
@@ -80,18 +99,38 @@ function clickRetryIfPresent() {
     return false;
 }
 
-async function startScraping(pages, sendResponse, clearData = true) {
+function clickShowHidden() {
+    // Look for the "Show" button usually at the bottom of threads for "hidden" or "low quality" replies
+    const spans = Array.from(document.querySelectorAll('span'));
+    for (const s of spans) {
+        if (s.innerText === 'Show' || s.innerText === 'Show more replies') {
+            // Check if it's likely the right button (usually inside a clickable container)
+            const parent = s.closest('div[role="button"]');
+            if (parent) {
+                console.log("X Scraper: Clicking 'Show' to reveal more/hidden replies...");
+                parent.click();
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+async function startScraping(pages, sendResponse, clearData = true, depth = 0, isChild = false, includeHidden = false) {
     shouldStopScraping = false;
     isScraping = true;
     scrollsLeft = pages;
 
+    if (clearData) {
+        chrome.runtime.sendMessage({ action: 'clearMasterData' });
+    }
+
     // Clear previously collected data to avoid duplicates from old scrolls
-    // (We might want to keep the initial page load data, but clearing makes it predictable)
     if (clearData) {
         collectedData = [];
-        engine = new XScraperEngine();
+        engine = new XScraperEngine(depth, includeHidden);
     } else if (!engine) {
-        engine = new XScraperEngine();
+        engine = new XScraperEngine(depth, includeHidden);
         engine.processData(collectedData);
     }
 
@@ -103,6 +142,13 @@ async function startScraping(pages, sendResponse, clearData = true) {
             console.log("Scraping stopped by user.");
             break;
         }
+
+        // Wait while paused, but allow stopping
+        while (isPaused && !shouldStopScraping) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+
+        if (shouldStopScraping) break;
 
         const currentHeight = document.body.scrollHeight;
 
@@ -144,10 +190,42 @@ async function startScraping(pages, sendResponse, clearData = true) {
         scrollsLeft = pages - i - 1;
 
         // 3. Wait for content
-        // We wait slightly longer if we suspect we are reaching a limit or if content is slow
         await new Promise(resolve => setTimeout(resolve, 2500));
 
-        // 4. Check for end of feed
+        // 4. Wait for any sub-thread crawling to finish if depth > 0
+        if (depth > 0 && !isChild) {
+            let isCrawlBusy = true;
+            console.log("X Scraper: Checking crawl queue status...");
+            while (isCrawlBusy && !shouldStopScraping) {
+                const status = await new Promise(r => {
+                    const t = setTimeout(() => r(null), 5000); // 5s timeout for message
+                    chrome.runtime.sendMessage({ action: 'getCrawlStatus' }, (res) => {
+                        clearTimeout(t);
+                        r(res);
+                    });
+                });
+
+                if (!status) {
+                    console.warn("X Scraper: Failed to get status from background. Retrying...");
+                    await new Promise(r => setTimeout(r, 2000));
+                    continue;
+                }
+
+                if (!status.isCrawling && status.queueLength === 0) {
+                    isCrawlBusy = false;
+                    console.log("X Scraper: Sub-thread queue empty. Proceeding to next scroll.");
+                } else {
+                    // Update overlay with background stats while waiting
+                    const statsSpan = document.getElementById('overlay-total-stats');
+                    if (statsSpan) {
+                        statsSpan.innerText = `${status.tweetCount} tweets, ${status.userCount} users (Crawl in progress: ${status.queueLength} left)`;
+                    }
+                    await new Promise(r => setTimeout(r, 2000));
+                }
+            }
+        }
+
+        // 5. Check for end of feed
         if (document.body.scrollHeight === currentHeight) {
             consecutiveNoGrowth++;
             if (consecutiveNoGrowth >= 4) { // Allow a few retries for slow loading
@@ -159,6 +237,14 @@ async function startScraping(pages, sendResponse, clearData = true) {
         }
 
         lastScrollHeight = document.body.scrollHeight;
+
+        // Extra: Click 'Show' for hidden replies if requested
+        if (includeHidden) {
+            if (clickShowHidden()) {
+                // Wait for the new content to load
+                await new Promise(resolve => setTimeout(resolve, 3000));
+            }
+        }
     }
 
     shouldStopScraping = false;
@@ -167,17 +253,23 @@ async function startScraping(pages, sendResponse, clearData = true) {
     waitSecondsLeft = 0;
     isOverrideRequested = false;
 
-    // Generate results
-    const result = engine.convertToCSV();
+    // Report final results to background
+    chrome.runtime.sendMessage({ action: 'appendData', tweets: engine.tweets, users: engine.usersDb });
 
+    if (isChild) {
+        chrome.runtime.sendMessage({ action: 'childDone' });
+        return;
+    }
+
+    // Generate local results (merged from background for final view)
+    const finalStatus = await new Promise(r => chrome.runtime.sendMessage({ action: 'getCrawlStatus' }, r));
+    const result = convertToCSV(engine.tweets, engine.usersDb); // Fallback local
     const baseName = getBaseNameFromUrl();
     result.baseName = baseName;
     result.timestamp = Date.now();
-
-    // Store globally so the popup can retrieve it if reopened
     lastResult = result;
 
-    showOverlay(result.tweetsCSV, result.usersCSV, result.allDataJSON, result.tweetCount, result.userCount, baseName, result.timestamp);
+    showOverlay(result.tweetsCSV, result.usersCSV, result.allDataJSON, finalStatus.tweetCount, finalStatus.userCount, baseName, result.timestamp);
 
     if (typeof sendResponse === 'function') {
         sendResponse({ status: 'done', result });
@@ -229,7 +321,7 @@ function showOverlay(tweetsCSV, usersCSV, allDataJSON, tweetCount, userCount, ba
 
     overlay.innerHTML = `
         <h3 style="margin: 0 0 10px 0; font-size: 18px; font-weight: bold;">X Scraper Complete</h3>
-        <p style="margin: 0 0 15px 0; font-size: 14px; color: #657786;">Found ${tweetCount} tweets and ${userCount} users.</p>
+        <p style="margin: 0 0 15px 0; font-size: 14px; color: #657786;">Total found: <span id="overlay-total-stats">${tweetCount} tweets, ${userCount} users</span></p>
         <button id="xs-dl-tweets" style="display: block; width: 100%; margin-bottom: 10px; padding: 10px; background: #1DA1F2; color: #fff; border: none; border-radius: 9999px; cursor: pointer; font-size: 15px; font-weight: bold; transition: background 0.2s;">Download Tweets CSV</button>
         <button id="xs-dl-users" style="display: block; width: 100%; margin-bottom: 10px; padding: 10px; background: #17bf63; color: #fff; border: none; border-radius: 9999px; cursor: pointer; font-size: 15px; font-weight: bold; transition: background 0.2s;">Download Users CSV</button>
         <button id="xs-dl-json" style="display: block; width: 100%; margin-bottom: 15px; padding: 10px; background: #6e84a3; color: #fff; border: none; border-radius: 9999px; cursor: pointer; font-size: 15px; font-weight: bold; transition: background 0.2s;">Download JSON (All Data)</button>
@@ -265,38 +357,16 @@ function showOverlay(tweetsCSV, usersCSV, allDataJSON, tweetCount, userCount, ba
  * XScraperEngine - JS Port of xscraper.php
  */
 class XScraperEngine {
-    constructor() {
+    constructor(depth = 0, includeHidden = false) {
         this.usersDb = {};
         this.tweets = {};
         this.indexCounter = 1;
+        this.currentDepth = depth;
+        this.includeHidden = includeHidden;
+        this.queuedTweetIds = new Set();
 
-        this.tweetHeader = [
-            'index_on_page', 'tweet_id', 'tweet_permalink_path', 'in_reply_to_user',
-            'in_reply_to_tweet', 'quoted_tweet_id', 'user_screen_name',
-            'user_id', 'user_name', 'user_location', 'user_timezone', 'user_lang',
-            'user_bio', 'user_image_url', 'date_time', 'tweet_date',
-            'coordinates_long', 'coordinates_lat', 'country', 'location_fullname',
-            'location_name', 'location_type', 'raw_text', 'clear_text', 'user_verified',
-            'hashtags', 'responses_to_tweeter', 'urls', 'user_mentions',
-            'tweet_language', 'filter_level', 'is_retweet', 'is_quote', 'is_reply',
-            'is_referenced', 'retweeted_tweet_id', 'retweeted_user_id',
-            'retweeter_ids', 'is_message', 'has_image', 'media_link', 'has_video',
-            'has_link', 'links', 'expanded_links', 'retweets', 'quotes', 'favorites',
-            'replies', 'source', 'mentions_of_tweeter', 'context_annotations',
-            'possibly_sensitive', 'conversation_id', 'withheld_copyright',
-            'withheld_in_countries', 'withheld_scope', 'is_protected_or_deleted',
-            'retweeter_api_cursor', 'views', 'blue_verified', 'video_views', 'user_geo_enabled'
-        ];
-
-        this.userHeader = [
-            'user_id', 'user_screen_name', 'user_name', 'user_lang', 'user_geo_enabled',
-            'user_location', 'user_timezone', 'user_utc_offset', 'user_tweets',
-            'user_followers', 'user_following', 'user_friends', 'user_favorites',
-            'user_lists', 'user_bio', 'user_verified', 'user_protected',
-            'user_withheld_in_countries', 'user_withheld_scope', 'user_created',
-            'user_image_url', 'user_url', 'restricted_to_public', 'is_deleted',
-            'is_suspended', 'item_updated_time', 'not_in_search_results', 'blue_verified'
-        ];
+        this.tweetHeader = TWEET_HEADERS;
+        this.userHeader = USER_HEADERS;
     }
 
     initializeRecord(type = "tweet") {
@@ -420,185 +490,181 @@ class XScraperEngine {
             this.recursiveSignatureScan(data);
         }
 
-        // Phase 2: Process Tweets
+        // Phase 2: Process Tweets (Recursive Scan)
         for (const data of collectedObjects) {
-            if (!data || !data.data) continue;
+            this.recursiveTweetScan(data);
+        }
+    }
 
-            let instructions = [];
+    recursiveTweetScan(data) {
+        if (Array.isArray(data)) {
+            data.forEach(v => this.recursiveTweetScan(v));
+        } else if (data && typeof data === 'object') {
+            // Support TweetWithVisibilityResults wrapper
+            let tRes = data;
+            if (tRes.__typename === 'TweetWithVisibilityResults') tRes = tRes.tweet;
 
-            if (data.data.search_by_raw_query?.search_timeline?.timeline?.instructions) {
-                instructions = data.data.search_by_raw_query.search_timeline.timeline.instructions;
-            } else if (data.data.user?.result?.timeline_v2?.timeline?.instructions) {
-                instructions = data.data.user.result.timeline_v2.timeline.instructions;
-            } else if (data.data.threaded_conversation_with_injections_v2?.instructions) {
-                instructions = data.data.threaded_conversation_with_injections_v2.instructions;
+            if (tRes && (tRes.__typename === 'Tweet' || tRes.legacy) && tRes.rest_id) {
+                this.processSingleTweet(tRes);
             }
 
-            for (const ins of instructions) {
-                if (ins.type === 'TimelineAddEntries' && ins.entries) {
-                    for (const item of ins.entries) {
-                        const eid = item.entryId || '';
-                        if (!eid.includes('tweet-') && !eid.includes('promoted')) continue;
+            for (const key in data) {
+                // Avoid infinite recursion or redundant scans
+                if (key === 'legacy' || key === 'core') continue; 
+                this.recursiveTweetScan(data[key]);
+            }
+        }
+    }
 
-                        let tRes = item.content?.itemContent?.tweet_results?.result;
-                        if (!tRes) continue;
-                        if (tRes.__typename === 'TweetWithVisibilityResults') tRes = tRes.tweet;
+    processSingleTweet(tRes) {
+        if (!tRes || !tRes.legacy || !tRes.rest_id) return;
+        
+        const leg = tRes.legacy;
+        const tId = String(tRes.rest_id);
 
-                        if (!tRes || !tRes.legacy) continue;
+        if (tRes.core?.user_results?.result) {
+            this.extractAndStoreUser(tRes.core.user_results.result);
+        }
 
-                        const leg = tRes.legacy;
-                        const tId = String(tRes.rest_id);
+        if (tId && !this.tweets[tId]) {
+            const uId = String(tRes.core?.user_results?.result?.rest_id || '');
+            const uData = this.usersDb[uId] || {};
 
-                        if (tRes.core?.user_results?.result) {
-                            this.extractAndStoreUser(tRes.core.user_results.result);
-                        }
+            const fullDate = this.formatXDate(leg.created_at || null);
+            const rawText = leg.full_text || '';
 
-                        if (tId && !this.tweets[tId]) {
-                            const uId = String(tRes.core?.user_results?.result?.rest_id || '');
-                            // Re-fetch uData after the fresh extractAndStoreUser call
-                            const uData = this.usersDb[uId] || {};
+            const hMatches = [...rawText.matchAll(/#(\w+)/g)].map(m => m[1]);
+            const entities = leg.entities || {};
+            const linksList = [];
+            const expandedList = [];
 
-                            const fullDate = this.formatXDate(leg.created_at || null);
-                            const rawText = leg.full_text || '';
+            if (entities.urls) {
+                for (const u of entities.urls) {
+                    if (u.url) linksList.push(u.url);
+                    if (u.expanded_url) expandedList.push(u.expanded_url);
+                }
+            }
 
-                            const hMatches = [...rawText.matchAll(/#(\w+)/g)].map(m => m[1]);
-                            const entities = leg.entities || {};
-                            const linksList = [];
-                            const expandedList = [];
+            const mentionsList = [];
+            if (entities.user_mentions) {
+                for (const m of entities.user_mentions) {
+                    if (m.screen_name) mentionsList.push(m.screen_name);
+                }
+            }
 
-                            if (entities.urls) {
-                                for (const u of entities.urls) {
-                                    if (u.url) linksList.push(u.url);
-                                    if (u.expanded_url) expandedList.push(u.expanded_url);
-                                }
-                            }
+            const mediaSource = leg.extended_entities || leg.entities || {};
+            const mediaLinks = [];
+            let hasImg = null;
+            let hasVid = null;
+            let vViews = 0;
 
-                            const mentionsList = [];
-                            if (entities.user_mentions) {
-                                for (const m of entities.user_mentions) {
-                                    if (m.screen_name) mentionsList.push(m.screen_name);
-                                }
-                            }
-
-                            const mediaSource = leg.extended_entities || leg.entities || {};
-                            const mediaLinks = [];
-                            let hasImg = null;
-                            let hasVid = null;
-                            let vViews = 0;
-
-                            if (mediaSource.media) {
-                                for (const m of mediaSource.media) {
-                                    if (m.media_url_https) mediaLinks.push(m.media_url_https);
-                                    if (m.type === 'photo') hasImg = "1";
-                                    if (['video', 'animated_gif'].includes(m.type)) hasVid = "1";
-                                    if (m.mediaStats && m.mediaStats.viewCount) {
-                                        vViews += m.mediaStats.viewCount;
-                                    }
-                                }
-                            }
-
-                            const rec = this.initializeRecord("tweet");
-                            Object.assign(rec, {
-                                index_on_page: this.indexCounter++,
-                                tweet_id: tId,
-                                user_id: uId,
-                                user_screen_name: uData.user_screen_name || null,
-                                user_name: uData.user_name || null,
-                                user_location: uData.user_location || null,
-                                user_geo_enabled: uData.user_geo_enabled || 0,
-                                user_image_url: uData.user_image_url || null,
-                                user_bio: uData.user_bio || null,
-                                user_verified: uData.user_verified || 0,
-                                blue_verified: uData.blue_verified || 0,
-                                raw_text: rawText,
-                                clear_text: this.cleanHtml(rawText),
-                                date_time: fullDate,
-                                tweet_date: fullDate ? fullDate.split(' ')[0] + " 00:00:00" : null,
-                                tweet_language: leg.lang || null,
-                                in_reply_to_tweet: leg.in_reply_to_status_id_str || null,
-                                in_reply_to_user: leg.in_reply_to_screen_name || null,
-                                is_reply: leg.in_reply_to_status_id_str ? "1" : null,
-                                is_retweet: leg.retweeted_status_id_str ? "1" : null,
-                                retweeted_tweet_id: leg.retweeted_status_id_str || null,
-                                is_quote: (leg.is_quote_status || leg.quoted_status_id_str) ? "1" : null,
-                                quoted_tweet_id: leg.quoted_status_id_str || null,
-                                hashtags: hMatches.length > 0 ? hMatches.join(' ') : null,
-                                coordinates_lat: leg.geo?.coordinates?.[0] || null,
-                                coordinates_long: leg.geo?.coordinates?.[1] || null,
-                                country: leg.place?.country || null,
-                                location_fullname: leg.place?.full_name || null,
-                                location_name: leg.place?.name || null,
-                                location_type: leg.place?.place_type || null,
-                                has_link: linksList.length > 0 ? "1" : null,
-                                links: linksList.join(' '),
-                                expanded_links: expandedList.join(' '),
-                                user_mentions: mentionsList.join(' '),
-                                retweets: leg.retweet_count || 0,
-                                favorites: leg.favorite_count || 0,
-                                replies: leg.reply_count || 0,
-                                quotes: leg.quote_count || 0,
-                                views: tRes.views?.count || 0,
-                                source: this.cleanHtml(tRes.source || ''),
-                                media_link: mediaLinks.join(' '),
-                                has_image: hasImg,
-                                has_video: hasVid,
-                                video_views: vViews > 0 ? vViews : 0,
-                                tweet_permalink_path: "https://x.com/" + (uData.user_screen_name || 'i') + "/status/" + tId
-                            });
-
-                            if (leg.geo || leg.place) {
-                                if (this.usersDb[uId]) this.usersDb[uId].user_geo_enabled = 1;
-                                rec.user_geo_enabled = 1;
-                            }
-
-                            this.tweets[tId] = rec;
-                        }
+            if (mediaSource.media) {
+                for (const m of mediaSource.media) {
+                    if (m.media_url_https) mediaLinks.push(m.media_url_https);
+                    if (m.type === 'photo') hasImg = "1";
+                    if (['video', 'animated_gif'].includes(m.type)) hasVid = "1";
+                    if (m.mediaStats && m.mediaStats.viewCount) {
+                        vViews += m.mediaStats.viewCount;
                     }
+                }
+            }
+
+            const rec = this.initializeRecord("tweet");
+            Object.assign(rec, {
+                index_on_page: this.indexCounter++,
+                tweet_id: tId,
+                user_id: uId,
+                user_screen_name: uData.user_screen_name || null,
+                user_name: uData.user_name || null,
+                user_location: uData.user_location || null,
+                user_geo_enabled: uData.user_geo_enabled || 0,
+                user_image_url: uData.user_image_url || null,
+                user_bio: uData.user_bio || null,
+                user_verified: uData.user_verified || 0,
+                blue_verified: uData.blue_verified || 0,
+                raw_text: rawText,
+                clear_text: this.cleanHtml(rawText),
+                date_time: fullDate,
+                tweet_date: fullDate ? fullDate.split(' ')[0] + " 00:00:00" : null,
+                tweet_language: leg.lang || null,
+                in_reply_to_tweet: leg.in_reply_to_status_id_str || null,
+                in_reply_to_user: leg.in_reply_to_screen_name || null,
+                is_reply: leg.in_reply_to_status_id_str ? "1" : null,
+                is_retweet: leg.retweeted_status_id_str ? "1" : null,
+                retweeted_tweet_id: leg.retweeted_status_id_str || null,
+                is_quote: (leg.is_quote_status || leg.quoted_status_id_str) ? "1" : null,
+                quoted_tweet_id: leg.quoted_status_id_str || null,
+                hashtags: hMatches.length > 0 ? hMatches.join(' ') : null,
+                coordinates_lat: leg.geo?.coordinates?.[0] || null,
+                coordinates_long: leg.geo?.coordinates?.[1] || null,
+                country: leg.place?.country || null,
+                location_fullname: leg.place?.full_name || null,
+                location_name: leg.place?.name || null,
+                location_type: leg.place?.place_type || null,
+                has_link: linksList.length > 0 ? "1" : null,
+                links: linksList.join(' '),
+                expanded_links: expandedList.join(' '),
+                user_mentions: mentionsList.join(' '),
+                retweets: leg.retweet_count || 0,
+                favorites: leg.favorite_count || 0,
+                replies: leg.reply_count || 0,
+                quotes: leg.quote_count || 0,
+                views: tRes.views?.count || 0,
+                source: this.cleanHtml(tRes.source || ''),
+                media_link: mediaLinks.join(' '),
+                has_image: hasImg,
+                has_video: hasVid,
+                video_views: vViews > 0 ? vViews : 0,
+                tweet_permalink_path: "https://x.com/" + (uData.user_screen_name || 'i') + "/status/" + tId
+            });
+
+            if (leg.geo || leg.place) {
+                if (this.usersDb[uId]) this.usersDb[uId].user_geo_enabled = 1;
+                rec.user_geo_enabled = 1;
+            }
+
+            this.tweets[tId] = rec;
+
+            // Report to background immediately for live master stats
+            chrome.runtime.sendMessage({ 
+                action: 'appendData', 
+                tweets: { [tId]: rec }, 
+                users: { [uId]: uData } 
+            });
+
+            // Dynamic queuing for recursive crawl
+            if (this.currentDepth > 0 && !this.queuedTweetIds.has(tId)) {
+                if ((parseInt(rec.replies) || 0) > 0 && rec.tweet_permalink_path) {
+                    this.queuedTweetIds.add(tId);
+                    chrome.runtime.sendMessage({ 
+                        action: 'addToQueue', 
+                        items: [{ 
+                            url: rec.tweet_permalink_path, 
+                            depth: this.currentDepth - 1,
+                            includeHidden: this.includeHidden
+                        }]
+                    });
                 }
             }
         }
     }
 
     convertToCSV() {
-        // Safe CSV escaping helper
-        const escapeCSV = (val) => {
-            if (val === null || val === undefined) return '';
-            const strVal = String(val);
-            if (strVal.includes(',') || strVal.includes('"') || strVal.includes('\n') || strVal.includes('\r')) {
-                return '"' + strVal.replace(/"/g, '""') + '"';
-            }
-            return strVal;
-        };
-
-        const tweetsArr = Object.values(this.tweets).sort((a, b) => a.index_on_page - b.index_on_page);
-        let tweetsCSV = this.tweetHeader.join(",") + "\n";
-        for (const t of tweetsArr) {
-            tweetsCSV += this.tweetHeader.map(h => escapeCSV(t[h])).join(",") + "\n";
-        }
-
-        const usersArr = Object.values(this.usersDb);
-        let usersCSV = this.userHeader.join(",") + "\n";
-        for (const u of usersArr) {
-            usersCSV += this.userHeader.map(h => escapeCSV(u[h])).join(",") + "\n";
-        }
-
-        return {
-            tweetsCSV,
-            usersCSV,
-            allDataJSON: JSON.stringify({ tweets: tweetsArr, users: usersArr }, null, 2),
-            tweetCount: tweetsArr.length,
-            userCount: usersArr.length
-        };
+        return convertToCSV(this.tweets, this.usersDb);
     }
 }
 
 // Check for auto-scrape instructions after a requested reload
-chrome.storage.local.get(['autoScrapePages'], (res) => {
+chrome.storage.local.get(['autoScrapePages', 'autoScrapeDepth', 'isAutoCrawlChild', 'autoScrapeHidden'], (res) => {
     if (res.autoScrapePages) {
-        chrome.storage.local.remove('autoScrapePages');
+        const pages = res.autoScrapePages;
+        const depth = res.autoScrapeDepth || 0;
+        const isChild = !!res.isAutoCrawlChild;
+        const includeHidden = !!res.autoScrapeHidden;
+        chrome.storage.local.remove(['autoScrapePages', 'autoScrapeDepth', 'isAutoCrawlChild', 'autoScrapeHidden']);
         // Wait 3.5 seconds to allow initial tweets to load from the network
         setTimeout(() => {
-            startScraping(res.autoScrapePages, null, false);
+            startScraping(pages, null, false, depth, isChild, includeHidden);
         }, 3500);
     }
 });

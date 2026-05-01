@@ -7,8 +7,12 @@
         "activeTab",
         "scripting",
         "downloads",
-        "storage"
+        "storage",
+        "tabs"
     ],
+    "background": {
+        "service_worker": "background.js"
+    },
     "host_permissions": [
         "*://*.x.com/*",
         "*://*.twitter.com/*"
@@ -23,6 +27,7 @@
                 "*://*.twitter.com/*"
             ],
             "js": [
+                "shared.js",
                 "content.js"
             ],
             "run_at": "document_start"

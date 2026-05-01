@@ -70,10 +70,21 @@
         <input type="number" id="pages" value="5" min="1" max="1000"
             style="width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #ccc; border-radius: 4px;">
 
+        <label style="margin-top: 10px; display: block;">Crawl Replies (Max Depth):</label>
+        <input type="number" id="crawlDepth" value="0" min="0" max="3"
+            style="width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #ccc; border-radius: 4px;">
+
         <div style="margin-top: 10px; font-size: 13px;">
             <label style="font-weight: normal; cursor: pointer;">
                 <input type="checkbox" id="refreshPage" checked>
-                Refresh page before scraping (Recommended to capture initial tweets)
+                Refresh page before scraping
+            </label>
+        </div>
+
+        <div style="margin-top: 5px; font-size: 13px;">
+            <label style="font-weight: normal; cursor: pointer;">
+                <input type="checkbox" id="includeHidden">
+                Include hidden/spam replies (May require clicking 'Show')
             </label>
         </div>
 
@@ -85,6 +96,7 @@
     <div id="status" class="hidden status-msg">
         <p>Scraping in progress... <span id="progressText"></span></p>
         <p id="liveStatsText" style="font-size: 14px; font-weight: bold; color: #1DA1F2; margin: 10px 0;"></p>
+        <button id="pauseBtn" class="btn" style="background: #f4a261; margin-bottom: 5px;">Pause Scrolling</button>
         <button id="stopBtn" class="btn" style="background: #e0245e; margin-bottom: 5px;">Stop & Generate CSV</button>
         <button id="resumeBtn" class="btn hidden" style="background: #17bf63; margin-bottom: 10px;">Resume Now</button>
         <p style="font-size: 12px; color: gray;">Please wait while the page scrolls automatically.</p>
@@ -98,6 +110,7 @@
         <button id="dlJSON" class="btn" style="background: #6e84a3;">Download JSON (All Data)</button>
     </div>
 
+    <script src="shared.js"></script>
     <script src="popup.js"></script>
 </body>
 
