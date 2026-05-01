@@ -107,17 +107,18 @@ async function showResults(result, isPrevious = false) {
 
         const downloadLink = (content, filename, isJson = false) => {
             const finalContent = isJson ? content : "\uFEFF" + content;
-            const blob = new Blob([finalContent], { type: isJson ? 'application/json' : 'text/csv;charset=utf-8' });
+            const blob = new Blob([finalContent], { type: isJson ? 'application/json' : 'application/octet-stream' });
             const url = URL.createObjectURL(blob);
-            
-            chrome.downloads.download({
-                url: url,
-                filename: filename,
-                saveAs: true
-            }, () => {
-                // Revoke URL after download starts to free up memory
-                setTimeout(() => URL.revokeObjectURL(url), 1000);
-            });
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => {
+                URL.revokeObjectURL(url);
+                a.remove();
+            }, 1000);
         };
 
         document.getElementById('dlTweets').onclick = () => {
