@@ -84,26 +84,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 function findRetryButton() {
-    // 1. Look for the actual Retry button which often has an icon + text
-    const buttons = Array.from(document.querySelectorAll('button, [role="button"], div[data-testid="empty_state_button_text"]'));
-    const retryBtn = buttons.find(el => el.textContent.trim().includes('Retry'));
-    if (retryBtn) return retryBtn;
-
-    // 2. Check for the error message container itself as a fallback
-    const spans = Array.from(document.querySelectorAll('span'));
-    const errorMsg = spans.find(s => s.textContent.includes('Something went wrong') || s.textContent.includes('Try reloading'));
-    if (errorMsg) {
-        // Find the closest button to this text
-        return errorMsg.parentElement?.querySelector('button, [role="button"]') || errorMsg;
-    }
-    
-    return null;
+    // Look through all elements to find text "Retry" - sometimes it's in a div or span
+    return Array.from(document.querySelectorAll('span, div, button, [role="button"]'))
+        .find(el => el.childNodes.length === 1 && el.textContent.trim() === 'Retry');
 }
 
 function clickRetryIfPresent() {
     const btn = findRetryButton();
-    if (btn && typeof btn.click === 'function') {
-        console.log("X Scraper: Found error state or Retry button. Clicking...");
+    if (btn) {
+        console.log("X Scraper: Found Retry button. Clicking...");
         btn.click();
         return true;
     }
@@ -236,8 +225,8 @@ async function startScraping(pages, sendResponse, clearData = true, depth = 0, i
             }
         }
 
-        // 5. Check for end of feed (don't count if we're in an error state)
-        if (document.body.scrollHeight === currentHeight && !findRetryButton()) {
+        // 5. Check for end of feed
+        if (document.body.scrollHeight === currentHeight) {
             consecutiveNoGrowth++;
             if (consecutiveNoGrowth >= 4) { // Allow a few retries for slow loading
                 console.log("X Scraper: No more content detected after multiple attempts. Stopping.");
