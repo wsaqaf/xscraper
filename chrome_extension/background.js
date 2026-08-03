@@ -18,8 +18,28 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'appendData') {
         const { tweets, users } = request;
-        Object.assign(masterTweets, tweets);
-        Object.assign(masterUsers, users);
+        for (const tId in tweets) {
+            if (!masterTweets[tId]) {
+                masterTweets[tId] = tweets[tId];
+            } else {
+                for (const key in tweets[tId]) {
+                    if (tweets[tId][key] !== null && tweets[tId][key] !== undefined && tweets[tId][key] !== "") {
+                        masterTweets[tId][key] = tweets[tId][key];
+                    }
+                }
+            }
+        }
+        for (const uId in users) {
+            if (!masterUsers[uId]) {
+                masterUsers[uId] = users[uId];
+            } else {
+                for (const key in users[uId]) {
+                    if (users[uId][key] !== null && users[uId][key] !== undefined && users[uId][key] !== "") {
+                        masterUsers[uId][key] = users[uId][key];
+                    }
+                }
+            }
+        }
         if (sendResponse) sendResponse({ success: true });
         return;
     }

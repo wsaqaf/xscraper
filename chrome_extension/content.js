@@ -424,10 +424,17 @@ class XScraperEngine {
     }
 
     extractAndStoreUser(obj) {
-        if (!obj || typeof obj !== 'object' || !obj.rest_id) return;
+        if (!obj || typeof obj !== 'object') return;
+        if (obj.user && typeof obj.user === 'object' && obj.user.rest_id) {
+            obj = obj.user;
+        }
+        if (!obj.rest_id) return;
 
         const legacy = obj.legacy || {};
         const core = obj.core || {};
+        const relationship_counts = obj.relationship_counts || {};
+        const tweet_counts = obj.tweet_counts || {};
+        const action_counts = obj.action_counts || {};
         const uId = String(obj.rest_id);
         const screenName = legacy.screen_name || core.screen_name || obj.screen_name || null;
 
@@ -444,6 +451,7 @@ class XScraperEngine {
 
         // Fill in missing bits
         if (!rec.user_screen_name) rec.user_screen_name = screenName;
+        if (!rec.user_name) rec.user_name = legacy.name || core.name || obj.name || null;
         // Location - Handle string or object {location: "..."}
         let loc = legacy.location || core.location || obj.location || null;
         if (loc && typeof loc === 'object' && loc.location !== undefined) loc = loc.location;
@@ -451,22 +459,53 @@ class XScraperEngine {
             rec.user_location = String(loc);
         }
         if (!rec.user_image_url) rec.user_image_url = img;
-        if (!rec.user_bio) rec.user_bio = legacy.description || null;
+        if (!rec.user_bio) rec.user_bio = legacy.description || (obj.profile_bio && obj.profile_bio.description) || null;
+
+        if (legacy.protected !== undefined) {
+            rec.user_protected = legacy.protected ? 1 : 0;
+        } else if (obj.privacy && obj.privacy.protected !== undefined) {
+            rec.user_protected = obj.privacy.protected ? 1 : 0;
+        }
 
         if (!rec.user_url) {
-            const urlData = legacy.entities?.url?.urls?.[0];
-            rec.user_url = urlData?.expanded_url || legacy.url || null;
+            const urlData = legacy.entities?.url?.urls?.[0] || obj.profile_bio?.entities?.url?.urls?.[0];
+            rec.user_url = urlData?.expanded_url || legacy.url || (obj.website && obj.website.url) || null;
         }
 
-        // Stats (update if non-zero)
-        if (legacy.followers_count) rec.user_followers = legacy.followers_count;
-        if (legacy.friends_count) {
+        // Stats (update if present, including 0)
+        if (legacy.followers_count !== undefined) {
+            rec.user_followers = legacy.followers_count;
+        } else if (relationship_counts.followers !== undefined) {
+            rec.user_followers = relationship_counts.followers;
+        }
+
+        if (legacy.friends_count !== undefined) {
             rec.user_following = legacy.friends_count;
             rec.user_friends = legacy.friends_count;
+        } else if (relationship_counts.following !== undefined) {
+            rec.user_following = relationship_counts.following;
+            rec.user_friends = relationship_counts.following;
         }
-        if (legacy.listed_count) rec.user_lists = legacy.listed_count;
-        if (legacy.favourites_count) rec.user_favorites = legacy.favourites_count;
-        if (legacy.statuses_count) rec.user_tweets = legacy.statuses_count;
+
+        if (legacy.listed_count !== undefined) {
+            rec.user_lists = legacy.listed_count;
+        } else if (relationship_counts.listed !== undefined) {
+            rec.user_lists = relationship_counts.listed;
+        } else if (tweet_counts.listed !== undefined) {
+            rec.user_lists = tweet_counts.listed;
+        }
+
+        if (legacy.favourites_count !== undefined) {
+            rec.user_favorites = legacy.favourites_count;
+        } else if (action_counts.favorites_count !== undefined) {
+            rec.user_favorites = action_counts.favorites_count;
+        }
+
+        if (legacy.statuses_count !== undefined) {
+            rec.user_tweets = legacy.statuses_count;
+        } else if (tweet_counts.tweets !== undefined) {
+            rec.user_tweets = tweet_counts.tweets;
+        }
 
         // Flags
         // Flags

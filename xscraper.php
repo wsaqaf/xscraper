@@ -95,13 +95,21 @@ class XScraperEngine
 
     private function extractAndStoreUser($obj)
     {
-        if (!is_array($obj) || !isset($obj['rest_id']))
+        if (!is_array($obj))
+            return;
+        if (isset($obj['user']) && is_array($obj['user']) && isset($obj['user']['rest_id'])) {
+            $obj = $obj['user'];
+        }
+        if (!isset($obj['rest_id']))
             return;
 
         $legacy = $obj['legacy'] ?? [];
         $core = $obj['core'] ?? [];
+        $relationship_counts = $obj['relationship_counts'] ?? [];
+        $tweet_counts = $obj['tweet_counts'] ?? [];
+        $action_counts = $obj['action_counts'] ?? [];
         $uId = (string)$obj['rest_id'];
-        $screenName = $legacy['screen_name'] ?? ($core['screen_name'] ?? null);
+        $screenName = $legacy['screen_name'] ?? ($core['screen_name'] ?? ($obj['screen_name'] ?? null));
 
         if (!$screenName)
             return;
@@ -119,7 +127,7 @@ class XScraperEngine
         if (!$rec['user_screen_name'])
             $rec['user_screen_name'] = $screenName;
         if (!$rec['user_name'])
-            $rec['user_name'] = $legacy['name'] ?? ($core['name'] ?? null);
+            $rec['user_name'] = $legacy['name'] ?? ($core['name'] ?? ($obj['name'] ?? null));
 
         // Location & Bio
         $loc = $legacy['location'] ?? ($obj['location'] ?? ($core['location'] ?? null));
@@ -129,25 +137,52 @@ class XScraperEngine
             $rec['user_location'] = (string)$loc;
         }
         if (empty($rec['user_bio']))
-            $rec['user_bio'] = $legacy['description'] ?? null;
+            $rec['user_bio'] = $legacy['description'] ?? ($obj['profile_bio']['description'] ?? null);
+
+        if (isset($legacy['protected'])) {
+            $rec['user_protected'] = $legacy['protected'] ? 1 : 0;
+        } elseif (isset($obj['privacy']['protected'])) {
+            $rec['user_protected'] = $obj['privacy']['protected'] ? 1 : 0;
+        }
 
         // Image
         if ($img && empty($rec['user_image_url']))
             $rec['user_image_url'] = $img;
 
         // Stats
-        if (!empty($legacy['followers_count']))
+        if (isset($legacy['followers_count'])) {
             $rec['user_followers'] = $legacy['followers_count'];
-        if (!empty($legacy['friends_count'])) {
+        } elseif (isset($relationship_counts['followers'])) {
+            $rec['user_followers'] = $relationship_counts['followers'];
+        }
+
+        if (isset($legacy['friends_count'])) {
             $rec['user_following'] = $legacy['friends_count'];
             $rec['user_friends'] = $legacy['friends_count'];
+        } elseif (isset($relationship_counts['following'])) {
+            $rec['user_following'] = $relationship_counts['following'];
+            $rec['user_friends'] = $relationship_counts['following'];
         }
-        if (!empty($legacy['listed_count']))
+
+        if (isset($legacy['listed_count'])) {
             $rec['user_lists'] = $legacy['listed_count'];
-        if (!empty($legacy['favourites_count']))
+        } elseif (isset($relationship_counts['listed'])) {
+            $rec['user_lists'] = $relationship_counts['listed'];
+        } elseif (isset($tweet_counts['listed'])) {
+            $rec['user_lists'] = $tweet_counts['listed'];
+        }
+
+        if (isset($legacy['favourites_count'])) {
             $rec['user_favorites'] = $legacy['favourites_count'];
-        if (!empty($legacy['statuses_count']))
+        } elseif (isset($action_counts['favorites_count'])) {
+            $rec['user_favorites'] = $action_counts['favorites_count'];
+        }
+
+        if (isset($legacy['statuses_count'])) {
             $rec['user_tweets'] = $legacy['statuses_count'];
+        } elseif (isset($tweet_counts['tweets'])) {
+            $rec['user_tweets'] = $tweet_counts['tweets'];
+        }
 
         // Flags
         $verObj = $obj['verification'] ?? ($core['verification'] ?? []);
@@ -169,8 +204,8 @@ class XScraperEngine
 
         // URL
         if (empty($rec['user_url'])) {
-            $urlData = $legacy['entities']['url']['urls'][0] ?? null;
-            $rec['user_url'] = $urlData['expanded_url'] ?? ($legacy['url'] ?? null);
+            $urlData = $legacy['entities']['url']['urls'][0] ?? ($obj['profile_bio']['entities']['url']['urls'][0] ?? null);
+            $rec['user_url'] = $urlData['expanded_url'] ?? ($legacy['url'] ?? ($obj['website']['url'] ?? null));
         }
     }
 
@@ -378,7 +413,6 @@ class XScraperEngine
                     }
                 }
             }
-        }
 
         $base = pathinfo($filePath, PATHINFO_FILENAME);
         $postfix = date('Ymd_His');
